@@ -326,6 +326,7 @@ async function selectItem(id) {
     document.getElementById('detailTitle').textContent = a.mcId||id;
     document.getElementById('dlSingleBtn').disabled = false;
     document.getElementById('detailScroll').innerHTML = buildPreviewHtml(a);
+    loadImages(a.mcId||id);
   } else {
     document.getElementById('detailTitle').textContent = id;
     document.getElementById('dlSingleBtn').disabled = true;
@@ -411,6 +412,7 @@ function buildPreviewHtml(a) {
         &#128203; Kopieer
       </button>
     </div>` : ''}
+    <div id="images-${a.mcId}" style="margin-bottom:16px"></div>
     <div class="p-main-title">${escH(a.title)}</div>
     <div class="p-section"><div class="p-lbl">Platform:</div><div class="p-val">${escH(a.platform)}</div></div>
     <div class="p-section"><div class="p-lbl">Link naar Microsoft:</div><div class="p-val">Roadmap ID: ${escH(a.roadmapId||'niet van toepassing')}<br><a href="${a.roadmapUrl}" target="_blank">${escH(a.roadmapUrl)}</a></div></div>
@@ -450,6 +452,35 @@ async function downloadSelectedZip() {
   toast(`ZIP gedownload (${ids.length} bestanden)`);
 }
 
+async function loadImages(mcId) {
+  const container = document.getElementById('images-'+mcId);
+  if(!container) return;
+  container.innerHTML = '<div style="font-size:12px;color:var(--muted)">Afbeeldingen laden...</div>';
+  try {
+    const data = await fetch('/api/images/'+mcId).then(r=>r.json());
+    if(!data.images || data.images.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+    const items = data.images.map((img,i) =>
+      `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:16px">&#128444;</span>
+        <a href="${img.url}" target="_blank" style="font-size:13px;color:var(--accent);text-decoration:none">
+          ${escH(img.alt || 'Afbeelding '+img.index)} &#8599;
+        </a>
+      </div>`
+    ).join('');
+    container.innerHTML = `
+      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:8px">
+          Afbeeldingen in dit item (${data.images.length})
+        </div>
+        ${items}
+      </div>`;
+  } catch(e) {
+    container.innerHTML = '';
+  }
+}
 function copyOneLiner(text) {
   navigator.clipboard.writeText(text).then(() => {
     toast('Gekopieerd naar klembord!');
