@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MC Analyzer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--dark:#0f1e2e;--dark2:#1a2f44;--accent:#0078d4;--accent2:#005a9e;--green:#107c10;--bg:#f0f4f8;--surface:#fff;--text:#1a2535;--muted:#5a6a7a;--border:#dde3eb;--row-hover:#f5f8fc;}
+body{font-family:'Segoe UI',-apple-system,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.topbar{background:var(--dark);height:52px;display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0;border-bottom:2px solid var(--accent)}
+.tb-logo{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff}
+.tb-title{font-size:15px;font-weight:700;color:#fff}.tb-sep{color:rgba(255,255,255,0.2)}.tb-sub{font-size:12px;color:rgba(255,255,255,0.4)}
+.tb-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.toolbar-left{display:flex;align-items:center;gap:10px;flex:1}
+.btn{padding:7px 16px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:none;display:flex;align-items:center;gap:6px;transition:opacity 0.15s,background 0.15s}
+.btn:disabled{opacity:0.45;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover:not(:disabled){background:var(--accent2)}
+.btn-green{background:var(--green);color:#fff}.btn-green:hover:not(:disabled){opacity:0.88}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}.btn-ghost:hover:not(:disabled){background:var(--row-hover);color:var(--text)}
+.filter-group{display:flex;align-items:center;gap:6px;margin-left:auto}
+.filter-label{font-size:12px;color:var(--muted);font-weight:500}
+select{padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;color:var(--text);background:#fff;outline:none}
+.split{flex:1;display:flex;overflow:hidden}
+.table-pane{display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--border)}
+.table-pane.full{width:100%}.table-pane.half{width:48%}
+.stats-bar{background:var(--dark2);padding:7px 18px;display:flex;align-items:center;gap:20px;flex-shrink:0}
+.stat{display:flex;align-items:center;gap:6px}.stat-num{font-size:18px;font-weight:700;color:#fff}
+.stat-lbl{font-size:11px;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.4px}
+.stat-sep{width:1px;height:28px;background:rgba(255,255,255,0.1)}
+.tbl-wrap{flex:1;overflow-y:auto}
+table{width:100%;border-collapse:collapse}
+thead{position:sticky;top:0;background:var(--surface);z-index:2}
+thead th{padding:9px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);border-bottom:2px solid var(--border);white-space:nowrap}
+tbody tr{cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s}
+tbody tr:hover{background:var(--row-hover)}tbody tr.selected{background:#eff6ff;border-left:3px solid var(--accent)}
+td{padding:10px 14px;font-size:13px;vertical-align:middle}
+.td-id{font-family:Consolas,monospace;font-size:12px;color:var(--muted);white-space:nowrap}
+.td-title{font-weight:500;line-height:1.4;max-width:320px}
+.td-svc{font-size:12px;color:var(--muted)}.td-date{font-size:12px;color:var(--muted);white-space:nowrap}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap}
+.badge-new{background:#dff6dd;color:#107c10}.badge-done{background:#f0f4ff;color:#0078d4}
+.badge-proc{background:#fff4ce;color:#835b00}.badge-err{background:#fde7e9;color:#c50f1f}
+.cb{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
+.detail-pane{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.detail-header{background:var(--surface);padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.detail-title{font-size:14px;font-weight:600}.detail-actions{display:flex;gap:8px}
+.detail-scroll{flex:1;overflow-y:auto;padding:20px}
+.preview-card{background:#fff;border-radius:8px;border:1px solid var(--border);padding:24px 28px;max-width:700px;box-shadow:0 1px 4px rgba(0,0,0,0.04)}
+.p-main-title{font-size:14px;font-weight:700;padding-bottom:12px;margin-bottom:16px;border-bottom:2px solid var(--accent)}
+.p-section{margin-bottom:14px}.p-lbl{font-size:12px;font-weight:700;margin-bottom:3px}
+.p-val{font-size:13px;line-height:1.65}.p-val a{color:var(--accent);text-decoration:none}
+.p-bullets{list-style:disc;padding-left:18px;margin:6px 0}.p-bullets li{font-size:13px;line-height:1.65;margin-bottom:3px}
+.p-divider{border:none;border-top:1px solid var(--border);margin:16px 0}
+.no-learn-note{font-size:12px;color:var(--muted);font-style:italic;margin-bottom:8px}
+.link-row{margin-bottom:10px}.link-row strong{font-size:13px;display:block;margin-bottom:2px}
+.empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+.empty-icon{width:60px;height:60px;background:var(--border);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px}
+.empty-t{font-size:15px;font-weight:500;color:var(--muted)}.empty-s{font-size:13px;color:#cbd5e1;text-align:center;max-width:260px;line-height:1.5}
+.progress-bar-wrap{background:rgba(255,255,255,0.2);border-radius:4px;height:6px;overflow:hidden;margin-top:6px}
+.progress-bar-fill{height:100%;background:#fff;border-radius:4px;transition:width 0.3s}
+.spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,0.35);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;display:flex;align-items:center;justify-content:center}
+.modal{background:#fff;border-radius:12px;padding:32px 36px;width:480px;box-shadow:0 8px 40px rgba(0,0,0,0.18)}
+.modal-title{font-size:17px;font-weight:700;margin-bottom:20px}.form-row{margin-bottom:16px}
+.form-row label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:5px}
+.form-row input,.form-row select{width:100%;padding:8px 11px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;outline:none;background:#fff}
+.form-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,120,212,0.1)}
+.form-row input[type=password]{font-family:Consolas,monospace;letter-spacing:1px}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.hint{font-size:11px;color:var(--muted);margin-top:4px}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--dark);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:200;opacity:0;transition:opacity 0.2s;pointer-events:none}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="tb-logo">MC</div>
+  <div class="tb-title">MC Analyzer</div>
+  <div class="tb-sep">|</div>
+  <div class="tb-sub">Microsoft 365 Message Center Analyse Tool</div>
+  <div class="tb-right">
+    <button class="btn btn-ghost" onclick="openSettings()" style="color:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.2);padding:5px 12px;font-size:12px">&#9881; Instellingen</button>
+  </div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <button class="btn btn-primary" onclick="fetchItems()" id="fetchBtn">&#8635; Items ophalen</button>
+      <button class="btn btn-green" onclick="analyzeSelected()" id="analyzeBtn" disabled>&#9654; Analyseer geselecteerde</button>
+      <button class="btn btn-green" onclick="analyzeAll()" id="analyzeAllBtn" disabled>&#9654;&#9654; Analyseer alle nieuwe</button>
+      <button class="btn btn-ghost" onclick="downloadAll()" id="dlAllBtn" disabled>&#8595; Download alle .docx</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Filter:</span>
+      <select id="statusFilter" onchange="renderTable()">
+        <option value="all">Alle items</option>
+        <option value="new" selected>Alleen nieuw</option>
+        <option value="done">Geanalyseerd</option>
+      </select>
+      <select id="serviceFilter" onchange="renderTable()"><option value="all">Alle services</option></select>
+    </div>
+  </div>
+  <div class="split">
+    <div class="table-pane full" id="tablePane">
+      <div class="stats-bar">
+        <div class="stat"><span class="stat-num" id="statTotal">0</span><span class="stat-lbl">Totaal</span></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><span class="stat-num" id="statNew">0</span><span class="stat-lbl">Nieuw</span></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><span class="stat-num" id="statDone">0</span><span class="stat-lbl">Geanalyseerd</span></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><span class="stat-num" id="statSel">0</span><span class="stat-lbl">Geselecteerd</span></div>
+        <div id="progressWrap" style="margin-left:auto;min-width:220px;display:none">
+          <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:3px" id="progressLbl">Analyseren...</div>
+          <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="tbl-wrap">
+        <div class="empty" id="tableEmpty">
+          <div class="empty-icon">&#128;&#137;</div>
+          <div class="empty-t">Nog geen items geladen</div>
+          <div class="empty-s">Klik op "Items ophalen" om recente Message Center items te laden</div>
+        </div>
+        <table id="itemTable" style="display:none">
+          <thead><tr>
+            <th style="width:32px"><input type="checkbox" class="cb" id="selectAll" onchange="toggleSelectAll(this)"></th>
+            <th>Message ID</th><th>Titel</th><th>Service</th><th>Bijgewerkt</th><th>Status</th>
+          </tr></thead>
+          <tbody id="itemBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="detail-pane" id="detailPane" style="display:none">
+      <div class="detail-header">
+        <div class="detail-title" id="detailTitle">Selecteer een item</div>
+        <div class="detail-actions">
+          <button class="btn btn-green" id="dlSingleBtn" onclick="downloadSingle()" disabled style="font-size:12px;padding:5px 12px">&#8595; Download .docx</button>
+          <button class="btn btn-ghost" onclick="closeDetail()" style="font-size:12px;padding:5px 12px">&#10005; Sluiten</button>
+        </div>
+      </div>
+      <div class="detail-scroll" id="detailScroll">
+        <div class="empty"><div class="empty-icon">&#128;&#148;</div><div class="empty-t">Selecteer een geanalyseerd item</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="settingsModal" style="display:none" onclick="if(event.target===this)closeSettings()">
+  <div class="modal">
+    <div class="modal-title">&#9881; Instellingen</div>
+    <div class="form-row"><label>Anthropic API Key</label><input type="password" id="settingsApiKey" placeholder="sk-ant-api03-..."><div class="hint">Wordt opgeslagen op je lokale machine.</div></div>
+    <div class="form-row"><label>Aantal items ophalen</label>
+      <select id="settingsCount"><option value="25">Laatste 25</option><option value="50" selected>Laatste 50</option><option value="100">Laatste 100</option><option value="200">Laatste 200</option></select></div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeSettings()">Annuleren</button><button class="btn btn-primary" onclick="saveSettings()">Opslaan</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+let allItems=[], selectedId=null, pollTimer=null;
+
+window.addEventListener('load', async () => {
+  const cfg = await fetch('/api/settings').then(r=>r.json()).catch(()=>({}));
+  if(cfg.api_key) document.getElementById('settingsApiKey').value = cfg.api_key;
+  if(cfg.count) document.getElementById('settingsCount').value = cfg.count;
+  const analyses = await fetch('/api/analyses').then(r=>r.json()).catch(()=>({analyses:{}}));
+  loadAnalyses(analyses.analyses || {});
+});
+
+function loadAnalyses(state) {
+  for(const item of allItems) {
+    if(state[item.id]) item.status = 'done';
+  }
+  renderTable(); updateStats();
+}
+
+async function fetchItems() {
+  const btn = document.getElementById('fetchBtn');
+  btn.disabled = true; btn.innerHTML = '<div class="spinner"></div>&nbsp;Ophalen...';
+  try {
+    const count = document.getElementById('settingsCount').value || 50;
+    const data = await fetch(`/api/items?count=${count}`).then(r=>r.json());
+    if(!data.ok) throw new Error(data.error);
+    allItems = data.items;
+    populateServiceFilter(); renderTable(); updateStats();
+    document.getElementById('analyzeAllBtn').disabled = false;
+    toast(`${allItems.length} items geladen`);
+  } catch(e) { toast('Fout: '+e.message, true); }
+  finally { btn.disabled=false; btn.textContent='↺ Items ophalen'; }
+}
+
+function populateServiceFilter() {
+  const sel = document.getElementById('serviceFilter');
+  const svcs = [...new Set(allItems.map(i=>i.service).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="all">Alle services</option>';
+  svcs.forEach(s => { const o=document.createElement('option'); o.value=s; o.textContent=s; sel.appendChild(o); });
+}
+
+function renderTable() {
+  const sf = document.getElementById('statusFilter').value;
+  const svf = document.getElementById('serviceFilter').value;
+  const body = document.getElementById('itemBody'); body.innerHTML='';
+  const visible = allItems.filter(i => (sf==='all'||i.status===sf) && (svf==='all'||i.service===svf));
+  if(!visible.length) { document.getElementById('itemTable').style.display='none'; document.getElementById('tableEmpty').style.display='flex'; return; }
+  document.getElementById('tableEmpty').style.display='none'; document.getElementById('itemTable').style.display='table';
+  visible.forEach(item => {
+    const tr = document.createElement('tr');
+    if(item.id===selectedId) tr.classList.add('selected');
+    const badge = item.status==='done' ? '<span class="badge badge-done">&#10003; Gereed</span>' :
+                  item.status==='processing' ? '<span class="badge badge-proc">Bezig</span>' :
+                  '<span class="badge badge-new">&#9679; Nieuw</span>';
+    tr.innerHTML = `<td><input type="checkbox" class="cb item-cb" data-id="${item.id}" onchange="updateSelCount()"></td>
+      <td class="td-id">${item.id}</td><td class="td-title">${escH(item.title)}</td>
+      <td class="td-svc">${escH(item.service)}</td><td class="td-date">${escH(item.lastUpdated)}</td>
+      <td>${badge}</td>`;
+    tr.addEventListener('click', e=>{ if(e.target.type==='checkbox')return; selectItem(item.id); });
+    body.appendChild(tr);
+  });
+  updateStats();
+}
+
+function toggleSelectAll(cb) { document.querySelectorAll('.item-cb').forEach(c=>c.checked=cb.checked); updateSelCount(); }
+function updateSelCount() { const n=document.querySelectorAll('.item-cb:checked').length; document.getElementById('statSel').textContent=n; document.getElementById('analyzeBtn').disabled=n===0; }
+function getSelectedIds() { return Array.from(document.querySelectorAll('.item-cb:checked')).map(c=>c.dataset.id); }
+function updateStats() {
+  document.getElementById('statTotal').textContent=allItems.length;
+  document.getElementById('statDone').textContent=allItems.filter(i=>i.status==='done').length;
+  document.getElementById('statNew').textContent=allItems.filter(i=>i.status==='new'||!i.status).length;
+  document.getElementById('dlAllBtn').disabled=!allItems.some(i=>i.status==='done');
+}
+
+async function selectItem(id) {
+  selectedId = id;
+  document.querySelectorAll('tbody tr').forEach(tr=>tr.classList.remove('selected'));
+  document.querySelector(`[data-id="${id}"]`)?.closest('tr')?.classList.add('selected');
+  document.getElementById('tablePane').classList.remove('full'); document.getElementById('tablePane').classList.add('half');
+  document.getElementById('detailPane').style.display='flex';
+  const analyses = await fetch('/api/analyses').then(r=>r.json());
+  const a = analyses.analyses?.[id]?.analysis;
+  if(a) {
+    document.getElementById('detailTitle').textContent = a.mcId||id;
+    document.getElementById('dlSingleBtn').disabled = false;
+    document.getElementById('detailScroll').innerHTML = buildPreviewHtml(a);
+  } else {
+    document.getElementById('detailTitle').textContent = id;
+    document.getElementById('dlSingleBtn').disabled = true;
+    document.getElementById('detailScroll').innerHTML = '<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Nog niet geanalyseerd.</p></div>';
+  }
+}
+
+function closeDetail() {
+  selectedId=null;
+  document.getElementById('tablePane').classList.remove('half'); document.getElementById('tablePane').classList.add('full');
+  document.getElementById('detailPane').style.display='none';
+}
+
+async function analyzeSelected() {
+  const ids = getSelectedIds();
+  const items = allItems.filter(i=>ids.includes(i.id));
+  await startAnalysis(items, false);
+}
+
+async function analyzeAll() {
+  const items = allItems.filter(i=>i.status==='new'||!i.status);
+  if(!items.length){toast('Geen nieuwe items');return;}
+  await startAnalysis(items, false);
+}
+
+async function startAnalysis(items, force) {
+  const cfg = await fetch('/api/settings').then(r=>r.json()).catch(()=>({}));
+  if(!cfg.api_key){openSettings();toast('Stel eerst je API key in',true);return;}
+  const resp = await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({api_key:cfg.api_key,items,force})}).then(r=>r.json());
+  if(!resp.ok){toast('Fout: '+resp.error,true);return;}
+  items.forEach(i=>{ const item=allItems.find(x=>x.id===i.id); if(item)item.status='processing'; });
+  renderTable();
+  document.getElementById('progressWrap').style.display='block';
+  pollTimer = setInterval(pollProgress, 1500);
+}
+
+async function pollProgress() {
+  const p = await fetch('/api/progress').then(r=>r.json());
+  const pct = p.total>0 ? Math.round((p.done/p.total)*100) : 0;
+  document.getElementById('progressFill').style.width = pct+'%';
+  document.getElementById('progressLbl').textContent = p.running ?
+    `Analyseren ${p.done}/${p.total}: ${p.current}` : `Klaar - ${p.done} verwerkt`;
+  if(!p.running) {
+    clearInterval(pollTimer);
+    setTimeout(()=>{ document.getElementById('progressWrap').style.display='none'; },3000);
+    const analyses = await fetch('/api/analyses').then(r=>r.json());
+    for(const item of allItems) {
+      if(analyses.analyses?.[item.id]) item.status='done';
+    }
+    renderTable(); updateStats();
+    toast(`Analyse klaar`);
+    if(selectedId && analyses.analyses?.[selectedId]) selectItem(selectedId);
+  }
+}
+
+function buildPreviewHtml(a) {
+  const planHtml=(Array.isArray(a.planning)?a.planning:[a.planning]).join('<br>');
+  const bullHtml=a.omschrijvingBullets?.length?`<ul class="p-bullets">${a.omschrijvingBullets.map(b=>`<li>${escH(b)}</li>`).join('')}</ul>`:'';
+  const beheerHtml=Array.isArray(a.impactBeheer)?`<ul class="p-bullets">${a.impactBeheer.map(b=>`<li>${escH(b)}</li>`).join('')}</ul>`:escH(a.impactBeheer);
+  let linksHtml='';
+  if(a.geenSpecifiekeLearnPagina) linksHtml+=`<p class="no-learn-note">Geen specifieke Microsoft Learn-pagina gevonden. Hieronder de meest relevante officiële bronnen.</p>`;
+  a.links?.forEach(l=>{linksHtml+=`<div class="link-row"><strong>${escH(l.label)}:</strong>${l.url?`<a href="${l.url}" target="_blank" style="font-size:13px">${escH(l.url)}</a>`:`<span style="font-size:13px;color:var(--muted)">Microsoft Message Center</span>`}</div>`;});
+  return `<div class="preview-card">
+    <div class="p-main-title">${escH(a.title)}</div>
+    <div class="p-section"><div class="p-lbl">Platform:</div><div class="p-val">${escH(a.platform)}</div></div>
+    <div class="p-section"><div class="p-lbl">Link naar Microsoft:</div><div class="p-val">Roadmap ID: ${escH(a.roadmapId||'niet van toepassing')}<br><a href="${a.roadmapUrl}" target="_blank">${escH(a.roadmapUrl)}</a></div></div>
+    <div class="p-section"><div class="p-lbl">Link naar Teams taak:</div><div class="p-val">Planner - ${escH(a.plannerTask)}</div></div>
+    <div class="p-section"><div class="p-lbl">Planning:</div><div class="p-val">${planHtml}</div></div>
+    <hr class="p-divider">
+    <div class="p-section"><div class="p-lbl">Omschrijving wijziging:</div><div class="p-val">${escH(a.omschrijvingIntro)}</div>${bullHtml}${a.omschrijvingSlot?`<div class="p-val" style="margin-top:8px">${escH(a.omschrijvingSlot)}</div>`:''}</div>
+    <hr class="p-divider">
+    <div class="p-section"><div class="p-lbl">Impactanalyse:</div><div class="p-val">
+      <strong>Impact voor organisaties:</strong> ${escH(a.impactOrganisaties)}<br><br>
+      <strong>Technische impact:</strong> ${escH(a.impactTechnisch)}<br><br>
+      <strong>Functionele impact:</strong> ${escH(a.impactFunctioneel)}<br><br>
+      <strong>Wijzigingen in beheer of gedrag:</strong>${beheerHtml}
+    </div></div>
+    <hr class="p-divider">
+    <div class="p-section"><div class="p-lbl">Links:</div><div class="p-val">${linksHtml}</div></div>
+  </div>`;
+}
+
+function downloadSingle() {
+  if(!selectedId) return;
+  window.location.href = `/api/download/${selectedId}`;
+}
+
+async function downloadAll() {
+  const done = allItems.filter(i=>i.status==='done');
+  for(const item of done) {
+    window.open(`/api/download/${item.id}`, '_blank');
+    await new Promise(r=>setTimeout(r,500));
+  }
+}
+
+function openSettings() { document.getElementById('settingsModal').style.display='flex'; }
+function closeSettings() { document.getElementById('settingsModal').style.display='none'; }
+async function saveSettings() {
+  const cfg = { api_key: document.getElementById('settingsApiKey').value.trim(),
+                count: document.getElementById('settingsCount').value };
+  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+  closeSettings(); toast('Instellingen opgeslagen');
+}
+
+function escH(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+let toastTimer;
+function toast(msg,err=false){const el=document.getElementById('toast');el.textContent=msg;el.style.background=err?'#c50f1f':'#0f1e2e';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3500);}
+</script>
+</body>
+</html>
