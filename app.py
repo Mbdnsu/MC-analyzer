@@ -11,29 +11,35 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 app = Flask(__name__)
-# Gebruik /data als persistent volume (Railway), anders lokale output map
-if Path("/data").exists():
-    OUTPUT_DIR = Path("/data")
-else:
-    OUTPUT_DIR = Path("output")
+OUTPUT_DIR = Path("/tmp/mc_output")
 OUTPUT_DIR.mkdir(exist_ok=True)
-STATE_FILE = OUTPUT_DIR / ".state.json"
-SEEN_FILE = OUTPUT_DIR / ".seen.json"
 
-SYSTEM_PROMPT = """Je bent een senior Microsoft 365 / Modern Workplace engineer die Message Center items analyseert.
-Schrijf ALTIJD in het Nederlands. Geen em-dash. Geen "ten eerste/tweede". Omschrijving zonder risico/impact.
-Geef ALLEEN pure JSON terug - geen markdown, geen backticks.
+# ─── DATABASE ─────────────────────────────────────────────────────────────────
+def get_db():
+    return psycopg2.connect(os.environ.get("DATABASE_URL"), sslmode='require')
 
-{"mcId":"MC1234567","title":"[Platform] Titel [MC1234567]","platform":"platform","roadmapId":"id of null","roadmapUrl":"https://www.microsoft.com/microsoft-365/roadmap","plannerTask":"[Platform] Titel [MC1234567]","planning":["Targeted Release: ...","Algemeen beschikbaar: ..."],"oneLiner":"Max 2 zinnen geschikt als opmerking in Planner. Zakelijk en concreet.","omschrijvingIntro":"tekst","omschrijvingBullets":["punt1","punt2"],"omschrijvingSlot":"tekst of lege string","impactOrganisaties":"laag/gemiddeld/hoog - toelichting","impactTechnisch":"tekst","impactFunctioneel":"tekst","impactBeheer":["actie1","actie2"],"relevantieSCore":3,"relevantieUitleg":"Max 1 zin waarom dit item relevant of minder relevant is.","links":[{"label":"Microsoft Learn - naam","url":"https://..."},{"label":"Microsoft Message Center - MC1234567","url":null}],"geenSpecifiekeLearnPagina":false}
+def init_db():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('''CREATE TABLE IF NOT EXISTS analyses (
+            mc_id TEXT PRIMARY KEY,
+            title TEXT,
+            filename TEXT,
+            analyzed_at TEXT,
+            analysis JSONB
+        )''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS seen_items (
+            mc_id TEXT PRIMARY KEY
+        )''')
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("Database klaar")
+    except Exception as e:
+        print(f"DB init fout: {e}")
 
-De relevantieScore is een getal van 1 tot 5:
-1 = Nauwelijks relevant (bijv. Dynamics 365 specifiek)
-2 = Beperkt relevant
-3 = Gemiddeld relevant
-4 = Relevant voor de meeste M365 organisaties
-5 = Zeer relevant, actie vereist"""
-
-progress = {"total": 0, "done": 0, "current": "", "running": False, "errors": [], "new_analyzed": []}
+init_db()
 
 def load_state():
     try:
@@ -41,7 +47,8 @@ def load_state():
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute('SELECT * FROM analyses')
         rows = cur.fetchall()
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
         return {row['mc_id']: {
             'title': row['title'],
             'filename': row['filename'],
@@ -63,7 +70,8 @@ def save_analysis(mc_id, title, filename, analyzed_at, analysis):
             analyzed_at=EXCLUDED.analyzed_at, analysis=EXCLUDED.analysis''',
             (mc_id, title, filename, analyzed_at, json.dumps(analysis)))
         conn.commit()
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
     except Exception as e:
         print(f"save_analysis fout: {e}")
 
@@ -73,9 +81,11 @@ def load_seen():
         cur = conn.cursor()
         cur.execute('SELECT mc_id FROM seen_items')
         rows = cur.fetchall()
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
         return set(row[0] for row in rows)
-    except:
+    except Exception as e:
+        print(f"load_seen fout: {e}")
         return set()
 
 def save_seen(seen):
@@ -85,10 +95,23 @@ def save_seen(seen):
         for mc_id in seen:
             cur.execute('INSERT INTO seen_items (mc_id) VALUES (%s) ON CONFLICT DO NOTHING', (mc_id,))
         conn.commit()
-        cur.close(); conn.close()
+        cur.close()
+        conn.close()
     except Exception as e:
         print(f"save_seen fout: {e}")
 
+# ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
+SYSTEM_PROMPT = """Je bent een senior Microsoft 365 / Modern Workplace engineer die Message Center items analyseert.
+Schrijf ALTIJD in het Nederlands. Geen em-dash. Geen "ten eerste/tweede". Omschrijving zonder risico/impact.
+Geef ALLEEN pure JSON terug - geen markdown, geen backticks.
+
+{"mcId":"MC1234567","title":"[Platform] Titel [MC1234567]","platform":"platform","roadmapId":"id of null","roadmapUrl":"https://www.microsoft.com/microsoft-365/roadmap","plannerTask":"[Platform] Titel [MC1234567]","planning":["Targeted Release: ...","Algemeen beschikbaar: ..."],"oneLiner":"Max 2 zinnen geschikt als opmerking in Planner. Zakelijk en concreet.","omschrijvingIntro":"tekst","omschrijvingBullets":["punt1","punt2"],"omschrijvingSlot":"tekst of lege string","impactOrganisaties":"laag/gemiddeld/hoog - toelichting","impactTechnisch":"tekst","impactFunctioneel":"tekst","impactBeheer":["actie1","actie2"],"relevantieSCore":3,"relevantieUitleg":"Max 1 zin waarom dit item relevant of minder relevant is.","links":[{"label":"Microsoft Learn - naam","url":"https://..."},{"label":"Microsoft Message Center - MC1234567","url":null}],"geenSpecifiekeLearnPagina":false}
+
+relevantieSCore: 1=nauwelijks relevant, 2=beperkt, 3=gemiddeld, 4=relevant, 5=zeer relevant/actie vereist"""
+
+progress = {"total": 0, "done": 0, "current": "", "running": False, "errors": [], "new_analyzed": []}
+
+# ─── SCRAPING ─────────────────────────────────────────────────────────────────
 def fetch_mc_list(count):
     resp = requests.get("https://mc.merill.net", timeout=15)
     resp.raise_for_status()
@@ -125,12 +148,12 @@ def fetch_item_images(url):
             src = img.get("src") or img.get("data-src")
             if src and not src.startswith("data:") and len(src) > 10:
                 if src.startswith("/"): src = "https://mc.merill.net" + src
-                alt = img.get("alt") or f"Afbeelding {i}"
-                imgs.append({"url": src, "alt": alt, "index": i})
+                imgs.append({"url": src, "alt": img.get("alt") or f"Afbeelding {i}", "index": i})
         return imgs
     except:
         return []
 
+# ─── CLAUDE ───────────────────────────────────────────────────────────────────
 def analyze(client, text):
     msg = client.messages.create(
         model="claude-sonnet-4-6", max_tokens=4096,
@@ -143,6 +166,7 @@ def analyze(client, text):
         raw = re.sub(r'\n?```$', '', raw)
     return json.loads(raw)
 
+# ─── DOCX ─────────────────────────────────────────────────────────────────────
 def build_docx(a, path):
     doc = Document()
     def bp(t): p = doc.add_paragraph(); r = p.add_run(t); r.bold = True; r.font.size = Pt(11)
@@ -150,20 +174,21 @@ def build_docx(a, path):
         if not t: doc.add_paragraph(); return
         p = doc.add_paragraph(); r = p.add_run(t); r.font.size = Pt(11)
     def lp(l, v):
-        p = doc.add_paragraph(); r1 = p.add_run(l); r1.bold = True; r1.font.size = Pt(11)
+        p = doc.add_paragraph()
+        r1 = p.add_run(l); r1.bold = True; r1.font.size = Pt(11)
         r2 = p.add_run(v or ""); r2.font.size = Pt(11)
     def bl(t):
         p = doc.add_paragraph(style="List Bullet"); r = p.add_run(t); r.font.size = Pt(11)
 
-    p = doc.add_paragraph(); r = p.add_run(a.get("title","")); r.bold = True; r.font.size = Pt(12)
+    p = doc.add_paragraph(); r = p.add_run(a.get("title", "")); r.bold = True; r.font.size = Pt(12)
     doc.add_paragraph()
-    bp("Platform:"); np(a.get("platform",""))
+    bp("Platform:"); np(a.get("platform", ""))
     doc.add_paragraph()
     bp("Link naar Microsoft (Roadmap ID + URL):")
     np(f"Roadmap ID: {a.get('roadmapId') or 'niet van toepassing'}")
     if a.get("roadmapUrl"): np(a["roadmapUrl"])
     doc.add_paragraph()
-    bp("Link naar Teams taak:"); np(f"Planner - {a.get('plannerTask','')}")
+    bp("Link naar Teams taak:"); np(f"Planner - {a.get('plannerTask', '')}")
     doc.add_paragraph()
     bp("Planning:")
     for l in (a.get("planning") or []): np(l)
@@ -176,9 +201,9 @@ def build_docx(a, path):
     if a.get("omschrijvingSlot"): doc.add_paragraph(); np(a["omschrijvingSlot"])
     doc.add_paragraph()
     bp("Impactanalyse:")
-    lp("Impact voor organisaties: ", a.get("impactOrganisaties",""))
-    lp("Technische impact: ", a.get("impactTechnisch",""))
-    lp("Functionele impact: ", a.get("impactFunctioneel",""))
+    lp("Impact voor organisaties: ", a.get("impactOrganisaties", ""))
+    lp("Technische impact: ", a.get("impactTechnisch", ""))
+    lp("Functionele impact: ", a.get("impactFunctioneel", ""))
     bp("Wijzigingen in beheer of gedrag:")
     for b in (a.get("impactBeheer") or []): bl(b)
     doc.add_paragraph()
@@ -187,11 +212,12 @@ def build_docx(a, path):
         np("Geen specifieke Microsoft Learn-pagina voor deze update gevonden. Hieronder de meest relevante officiële bronnen.")
         doc.add_paragraph()
     for link in (a.get("links") or []):
-        bp(f"{link.get('label','')}:")
+        bp(f"{link.get('label', '')}:")
         np(link.get("url") or "Microsoft Message Center")
         doc.add_paragraph()
     doc.save(str(path))
 
+# ─── TEAMS NOTIFICATIE ────────────────────────────────────────────────────────
 def send_teams_notification(webhook_url, new_items):
     if not webhook_url or not new_items: return
     items_text = "\n".join([f"- **{i['mcId']}** {i['title']} (score: {i.get('relevantieSCore','?')}/5)" for i in new_items[:10]])
@@ -200,14 +226,17 @@ def send_teams_notification(webhook_url, new_items):
         "themeColor": "0078D4", "summary": f"{len(new_items)} nieuwe MC analyses gereed",
         "sections": [{"activityTitle": f"MC Analyzer: {len(new_items)} nieuwe analyses",
                       "activitySubtitle": "Microsoft 365 Message Center",
-                      "activityText": f"De volgende items zijn geanalyseerd:\n\n{items_text}", "markdown": True}]
+                      "activityText": f"De volgende items zijn geanalyseerd:\n\n{items_text}",
+                      "markdown": True}]
     }
     try: requests.post(webhook_url, json=payload, timeout=10)
     except Exception as e: print(f"Teams notificatie mislukt: {e}")
 
+# ─── ANALYSE THREAD ───────────────────────────────────────────────────────────
 def run_analysis(api_key, items, force, webhook_url=""):
     global progress
     client = anthropic.Anthropic(api_key=api_key)
+    state = load_state()
     progress["running"] = True
     progress["total"] = len(items)
     progress["done"] = 0
@@ -215,7 +244,7 @@ def run_analysis(api_key, items, force, webhook_url=""):
     progress["new_analyzed"] = []
 
     for item in items:
-        if not progress["running"]: break  # Stop als reset is gedrukt
+        if not progress["running"]: break
         mc_id = item["id"]
         progress["current"] = mc_id
         if not force and mc_id in state:
@@ -223,16 +252,17 @@ def run_analysis(api_key, items, force, webhook_url=""):
             continue
         try:
             text = fetch_item_text(item)
-            time.sleep(1)  # Vertraging om rate limiting te voorkomen
+            time.sleep(1)
             result = analyze(client, text)
-            time.sleep(2)  # Extra vertraging tussen items
+            time.sleep(2)
             safe_title = re.sub(r'[\\/*?:"<>|]', '', result.get("title", mc_id))[:120]
             filename = f"{safe_title}.docx"
             docx_path = OUTPUT_DIR / filename
             build_docx(result, docx_path)
             save_analysis(mc_id, item["title"], filename, datetime.now().isoformat(), result)
             progress["new_analyzed"].append({
-                "mcId": mc_id, "title": result.get("title", item["title"]),
+                "mcId": mc_id,
+                "title": result.get("title", item["title"]),
                 "relevantieSCore": result.get("relevantieSCore", 3)
             })
         except Exception as e:
@@ -246,6 +276,7 @@ def run_analysis(api_key, items, force, webhook_url=""):
     progress["running"] = False
     progress["current"] = ""
 
+# ─── ROUTES ───────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -304,29 +335,24 @@ def get_analyses():
 @app.route("/api/download/<mc_id>")
 def download_file(mc_id):
     state = load_state()
-    entry = state.get(mc_id, {})
-    if not entry:
-        return "Niet gevonden", 404
-    analysis = entry.get("analysis", {})
+    entry = state.get(mc_id)
+    if not entry: return "Niet gevonden", 404
     filename = entry.get("filename", f"{mc_id}_analyse.docx")
-    # Bouw docx opnieuw als het niet meer bestaat
     path = OUTPUT_DIR / filename
     if not path.exists():
-        try:
-            build_docx(analysis, path)
-        except Exception as e:
-            return f"Fout bij aanmaken document: {e}", 500
+        try: build_docx(entry.get("analysis", {}), path)
+        except Exception as e: return f"Fout: {e}", 500
     return send_file(str(path), as_attachment=True, download_name=filename)
 
 @app.route("/api/download-zip", methods=["POST"])
 def download_zip():
     ids = request.json.get("ids", [])
-    if not ids: return "Geen items opgegeven", 400
+    if not ids: return "Geen items", 400
     state = load_state()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for mc_id in ids:
-            entry = state.get(mc_id, {})
+            entry = state.get(mc_id)
             if not entry: continue
             filename = entry.get("filename", f"{mc_id}_analyse.docx")
             path = OUTPUT_DIR / filename
@@ -342,8 +368,7 @@ def download_zip():
 
 @app.route("/api/images/<mc_id>")
 def get_images(mc_id):
-    url = f"https://mc.merill.net/message/{mc_id}"
-    images = fetch_item_images(url)
+    images = fetch_item_images(f"https://mc.merill.net/message/{mc_id}")
     return jsonify({"ok": True, "images": images})
 
 @app.route("/api/settings", methods=["GET", "POST"])
