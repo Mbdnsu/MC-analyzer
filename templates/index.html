@@ -320,18 +320,25 @@ async function selectItem(id) {
   document.querySelector(`[data-id="${id}"]`)?.closest('tr')?.classList.add('selected');
   document.getElementById('tablePane').classList.remove('full'); document.getElementById('tablePane').classList.add('half');
   document.getElementById('detailPane').style.display='flex';
-  const analyses = await fetch('/api/analyses').then(r=>r.json());
-  const entry = analyses.analyses?.[id];
-  const a = entry?.analysis;
-  if(a) {
-    document.getElementById('detailTitle').textContent = a.mcId||id;
-    document.getElementById('dlSingleBtn').disabled = false;
-    document.getElementById('detailScroll').innerHTML = buildPreviewHtml(a);
-    loadImages(a.mcId||id);
-  } else {
-    document.getElementById('detailTitle').textContent = id;
-    document.getElementById('dlSingleBtn').disabled = true;
-    document.getElementById('detailScroll').innerHTML = '<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Nog niet geanalyseerd.</p></div>';
+  document.getElementById('detailTitle').textContent = id;
+  document.getElementById('detailScroll').innerHTML = '<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Laden...</p></div>';
+  try {
+    const resp = await fetch('/api/analyses');
+    const analyses = await resp.json();
+    const entry = analyses.analyses?.[id];
+    const a = entry?.analysis;
+    if(a) {
+      document.getElementById('detailTitle').textContent = a.mcId||id;
+      document.getElementById('dlSingleBtn').disabled = false;
+      document.getElementById('detailScroll').innerHTML = buildPreviewHtml(a);
+      loadImages(a.mcId||id);
+    } else {
+      document.getElementById('detailTitle').textContent = id;
+      document.getElementById('dlSingleBtn').disabled = true;
+      document.getElementById('detailScroll').innerHTML = '<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Nog niet geanalyseerd.</p></div>';
+    }
+  } catch(e) {
+    document.getElementById('detailScroll').innerHTML = '<div style="padding:20px"><p style="font-size:13px;color:#c50f1f">Fout bij laden: '+e.message+'</p></div>';
   }
 }
 
