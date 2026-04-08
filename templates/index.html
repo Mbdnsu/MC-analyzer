@@ -101,6 +101,7 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
       <button class="btn btn-green" onclick="analyzeSelected()" id="analyzeBtn" disabled>&#9654; Analyseer geselecteerde</button>
       <button class="btn btn-green" onclick="analyzeAll()" id="analyzeAllBtn" disabled>&#9654;&#9654; Analyseer alle nieuwe</button>
       <button class="btn btn-ghost" onclick="downloadSelectedZip()" id="dlZipBtn" disabled>&#8595; Download ZIP</button>
+      <button class="btn btn-ghost" onclick="resetAnalysis()" id="resetBtn" style="display:none;color:#c50f1f;border-color:#fecaca">&#9632; Stop analyse</button>
     </div>
     <div style="display:flex;align-items:center;gap:6px;margin-right:10px">
       <input type="text" id="searchInput" placeholder="Zoek op MC-nummer of titel..."
@@ -362,6 +363,7 @@ async function startAnalysis(items, force) {
   items.forEach(i=>{ const item=allItems.find(x=>x.id===i.id); if(item)item.status='processing'; });
   renderTable();
   document.getElementById('progressWrap').style.display='block';
+  document.getElementById('resetBtn').style.display='flex';
   pollTimer = setInterval(pollProgress, 1500);
 }
 
@@ -371,6 +373,7 @@ async function pollProgress() {
   document.getElementById('progressFill').style.width = pct+'%';
   document.getElementById('progressLbl').textContent = p.running ?
     `Analyseren ${p.done}/${p.total}: ${p.current}` : `Klaar - ${p.done} verwerkt`;
+  document.getElementById('resetBtn').style.display = p.running ? 'flex' : 'none';
   if(!p.running) {
     clearInterval(pollTimer);
     setTimeout(()=>{ document.getElementById('progressWrap').style.display='none'; },3000);
@@ -452,6 +455,18 @@ async function downloadSelectedZip() {
   toast(`ZIP gedownload (${ids.length} bestanden)`);
 }
 
+async function resetAnalysis() {
+  if(!confirm('Weet je zeker dat je de analyse wilt stoppen?')) return;
+  await fetch('/api/reset', {method:'POST'});
+  clearInterval(pollTimer);
+  document.getElementById('progressWrap').style.display='none';
+  document.getElementById('resetBtn').style.display='none';
+  for(const item of allItems) {
+    if(item.status==='processing') item.status='new';
+  }
+  renderTable(); updateStats();
+  toast('Analyse gestopt');
+}
 async function loadImages(mcId) {
   const container = document.getElementById('images-'+mcId);
   if(!container) return;
