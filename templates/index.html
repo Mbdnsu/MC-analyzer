@@ -368,78 +368,31 @@ async function startAnalysis(items, force) {
 }
 
 async function pollProgress() {
-  const p = await fetch('/api/progress').then(r=>r.json());
-  const pct = p.total>0 ? Math.round((p.done/p.total)*100) : 0;
-  document.getElementById('progressFill').style.width = pct+'%';
-  document.getElementById('progressLbl').textContent = p.running ?
-    `Analyseren ${p.done}/${p.total}: ${p.current}` : `Klaar - ${p.done} verwerkt`;
-  document.getElementById('resetBtn').style.display = p.running ? 'flex' : 'none';
-  if(!p.running) {
-    clearInterval(pollTimer);
-    setTimeout(()=>{ document.getElementById('progressWrap').style.display='none'; },3000);
+  try {
+    const p = await fetch('/api/progress').then(r=>r.json());
+    const pct = p.total>0 ? Math.round((p.done/p.total)*100) : 0;
+    document.getElementById('progressFill').style.width = pct+'%';
+    document.getElementById('progressLbl').textContent = p.running ?
+      `Analyseren ${p.done}/${p.total}: ${p.current}` : `Klaar - ${p.done} verwerkt`;
+    document.getElementById('resetBtn').style.display = p.running ? 'flex' : 'none';
     const analyses = await fetch('/api/analyses').then(r=>r.json());
     for(const item of allItems) {
       if(analyses.analyses?.[item.id]) {
-        item.status='done';
+        item.status = 'done';
         item.relevantieSCore = analyses.analyses[item.id].analysis?.relevantieSCore || null;
         item.analyzedTitle = analyses.analyses[item.id].analysis?.title || null;
       }
     }
     renderTable(); updateStats();
-    toast(`Analyse klaar`);
-    if(selectedId && analyses.analyses?.[selectedId]) selectItem(selectedId);
-  }
+    if(!p.running) {
+      clearInterval(pollTimer); pollTimer = null;
+      setTimeout(()=>{ document.getElementById('progressWrap').style.display='none'; },3000);
+      document.getElementById('resetBtn').style.display='none';
+      toast(`Analyse klaar - ${p.done} verwerkt`);
+      if(selectedId && analyses.analyses?.[selectedId]) selectItem(selectedId);
+    }
+  } catch(e) { console.warn('Poll fout:', e); }
 }
-
-function buildPreviewHtml(a) {
-  const score = a.relevantieSCore || 0;
-  const scoreColors = ['','#ef4444','#f97316','#eab308','#22c55e','#0078d4'];
-  const scoreLabels = ['','Nauwelijks relevant','Beperkt relevant','Gemiddeld relevant','Relevant','Zeer relevant'];
-  const scoreHtml = score ? `<div class="relevantie-bar">
-    <div class="relevantie-score" style="color:${scoreColors[score]}">${'★'.repeat(score)}${'☆'.repeat(5-score)}</div>
-    <div><div class="relevantie-label">${scoreLabels[score]} (${score}/5)</div>
-    <div class="relevantie-uitleg">${escH(a.relevantieUitleg||'')}</div></div>
-  </div>` : '';
-  const planHtml=(Array.isArray(a.planning)?a.planning:[a.planning]).join('<br>');
-  const bullHtml=a.omschrijvingBullets?.length?`<ul class="p-bullets">${a.omschrijvingBullets.map(b=>`<li>${escH(b)}</li>`).join('')}</ul>`:'';
-  const beheerHtml=Array.isArray(a.impactBeheer)?`<ul class="p-bullets">${a.impactBeheer.map(b=>`<li>${escH(b)}</li>`).join('')}</ul>`:escH(a.impactBeheer);
-  let linksHtml='';
-  if(a.geenSpecifiekeLearnPagina) linksHtml+=`<p class="no-learn-note">Geen specifieke Microsoft Learn-pagina gevonden. Hieronder de meest relevante officiële bronnen.</p>`;
-  a.links?.forEach(l=>{linksHtml+=`<div class="link-row"><strong>${escH(l.label)}:</strong>${l.url?`<a href="${l.url}" target="_blank" style="font-size:13px">${escH(l.url)}</a>`:`<span style="font-size:13px;color:var(--muted)">Microsoft Message Center</span>`}</div>`;});
-  return `<div class="preview-card">
-    ${scoreHtml}
-    ${a.oneLiner ? `<div style="background:#f0f4ff;border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin-bottom:16px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Samenvatting voor Planner</div>
-      <div style="font-size:13px;color:var(--text);line-height:1.6">${escH(a.oneLiner)}</div>
-      <button onclick="copyOneLiner(${JSON.stringify(a.oneLiner).replace(/'/g,'&#39;')})" style="margin-top:8px;padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">
-        &#128203; Kopieer
-      </button>
-    </div>` : ''}
-    <div id="images-${a.mcId}" style="margin-bottom:16px"></div>
-    <div class="p-main-title">${escH(a.title)}</div>
-    <div class="p-section"><div class="p-lbl">Platform:</div><div class="p-val">${escH(a.platform)}</div></div>
-    <div class="p-section"><div class="p-lbl">Link naar Microsoft:</div><div class="p-val">Roadmap ID: ${escH(a.roadmapId||'niet van toepassing')}<br><a href="${a.roadmapUrl}" target="_blank">${escH(a.roadmapUrl)}</a></div></div>
-    <div class="p-section"><div class="p-lbl">Link naar Teams taak:</div><div class="p-val">Planner - ${escH(a.plannerTask)}</div></div>
-    <div class="p-section"><div class="p-lbl">Planning:</div><div class="p-val">${planHtml}</div></div>
-    <hr class="p-divider">
-    <div class="p-section"><div class="p-lbl">Omschrijving wijziging:</div><div class="p-val">${escH(a.omschrijvingIntro)}</div>${bullHtml}${a.omschrijvingSlot?`<div class="p-val" style="margin-top:8px">${escH(a.omschrijvingSlot)}</div>`:''}</div>
-    <hr class="p-divider">
-    <div class="p-section"><div class="p-lbl">Impactanalyse:</div><div class="p-val">
-      <strong>Impact voor organisaties:</strong> ${escH(a.impactOrganisaties)}<br><br>
-      <strong>Technische impact:</strong> ${escH(a.impactTechnisch)}<br><br>
-      <strong>Functionele impact:</strong> ${escH(a.impactFunctioneel)}<br><br>
-      <strong>Wijzigingen in beheer of gedrag:</strong>${beheerHtml}
-    </div></div>
-    <hr class="p-divider">
-    <div class="p-section"><div class="p-lbl">Links:</div><div class="p-val">${linksHtml}</div></div>
-  </div>`;
-}
-
-function downloadSingle() {
-  if(!selectedId) return;
-  window.location.href = `/api/download/${selectedId}`;
-}
-
 async function downloadSelectedZip() {
   const ids = getSelectedIds().filter(id => allItems.find(i=>i.id===id)?.status==='done');
   if(!ids.length){toast('Selecteer eerst geanalyseerde items',true);return;}
