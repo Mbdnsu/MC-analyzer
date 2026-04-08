@@ -12,17 +12,16 @@ body{font-family:'Segoe UI',-apple-system,sans-serif;background:var(--bg);color:
 .tb-logo{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff}
 .tb-title{font-size:15px;font-weight:700;color:#fff}.tb-sep{color:rgba(255,255,255,0.2)}.tb-sub{font-size:12px;color:rgba(255,255,255,0.4)}
 .tb-right{margin-left:auto;display:flex;align-items:center;gap:10px}
-.toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap}
 .toolbar-left{display:flex;align-items:center;gap:10px;flex:1}
 .btn{padding:7px 16px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:none;display:flex;align-items:center;gap:6px;transition:opacity 0.15s,background 0.15s}
 .btn:disabled{opacity:0.45;cursor:not-allowed}
 .btn-primary{background:var(--accent);color:#fff}.btn-primary:hover:not(:disabled){background:var(--accent2)}
 .btn-green{background:var(--green);color:#fff}.btn-green:hover:not(:disabled){opacity:0.88}
 .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}.btn-ghost:hover:not(:disabled){background:var(--row-hover);color:var(--text)}
-.btn-orange{background:#d83b01;color:#fff}.btn-orange:hover:not(:disabled){opacity:0.88}
 .filter-group{display:flex;align-items:center;gap:6px;margin-left:auto}
 .filter-label{font-size:12px;color:var(--muted);font-weight:500}
-select{padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;color:var(--text);background:#fff;outline:none}
+select,input[type=text]{padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;color:var(--text);background:#fff;outline:none}
 .split{flex:1;display:flex;overflow:hidden}
 .table-pane{display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--border)}
 .table-pane.full{width:100%}.table-pane.half{width:48%}
@@ -43,9 +42,7 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
 .td-svc{font-size:12px;color:var(--muted)}.td-date{font-size:12px;color:var(--muted);white-space:nowrap}
 .badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap}
 .badge-new{background:#dff6dd;color:#107c10}.badge-done{background:#f0f4ff;color:#0078d4}
-.badge-proc{background:#fff4ce;color:#835b00}.badge-err{background:#fde7e9;color:#c50f1f}
-.badge-nieuw{background:#fef3c7;color:#92400e;margin-left:4px}
-.score-stars{display:inline-flex;gap:1px;font-size:13px}
+.badge-proc{background:#fff4ce;color:#835b00}.badge-nieuw-tag{background:#fef3c7;color:#92400e;margin-left:4px}
 .cb{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
 .detail-pane{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .detail-header{background:var(--surface);padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
@@ -60,9 +57,7 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
 .no-learn-note{font-size:12px;color:var(--muted);font-style:italic;margin-bottom:8px}
 .link-row{margin-bottom:10px}.link-row strong{font-size:13px;display:block;margin-bottom:2px}
 .relevantie-bar{display:flex;align-items:center;gap:10px;background:#f8fafc;border-radius:8px;padding:10px 14px;margin-bottom:16px}
-.relevantie-score{font-size:22px;font-weight:800;color:var(--accent)}
-.relevantie-label{font-size:12px;color:var(--muted)}
-.relevantie-uitleg{font-size:13px;color:var(--text);margin-top:2px}
+.one-liner-box{background:#f0f4ff;border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin-bottom:16px}
 .empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
 .empty-icon{width:60px;height:60px;background:var(--border);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px}
 .empty-t{font-size:15px;font-weight:500;color:var(--muted)}.empty-s{font-size:13px;color:#cbd5e1;text-align:center;max-width:260px;line-height:1.5}
@@ -101,12 +96,10 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
       <button class="btn btn-green" onclick="analyzeSelected()" id="analyzeBtn" disabled>&#9654; Analyseer geselecteerde</button>
       <button class="btn btn-green" onclick="analyzeAll()" id="analyzeAllBtn" disabled>&#9654;&#9654; Analyseer alle nieuwe</button>
       <button class="btn btn-ghost" onclick="downloadSelectedZip()" id="dlZipBtn" disabled>&#8595; Download ZIP</button>
-      <button class="btn btn-ghost" onclick="resetAnalysis()" id="resetBtn" style="display:none;color:#c50f1f;border-color:#fecaca">&#9632; Stop analyse</button>
+      <button class="btn btn-ghost" onclick="resetAnalysis()" id="resetBtn" style="display:none;color:#c50f1f;border-color:#fecaca">&#9632; Stop</button>
     </div>
     <div style="display:flex;align-items:center;gap:6px;margin-right:10px">
-      <input type="text" id="searchInput" placeholder="Zoek op MC-nummer of titel..."
-        oninput="renderTable()"
-        style="padding:6px 11px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;width:260px;outline:none">
+      <input type="text" id="searchInput" placeholder="Zoek op MC-nummer of titel..." oninput="renderTable()" style="width:240px">
     </div>
     <div class="filter-group">
       <span class="filter-label">Filter:</span>
@@ -125,8 +118,7 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
     </div>
   </div>
   <div class="new-banner" id="newBanner">
-    <span>&#11088;</span>
-    <span id="newBannerText"></span>
+    <span>&#11088;</span><span id="newBannerText"></span>
   </div>
   <div class="split">
     <div class="table-pane full" id="tablePane">
@@ -172,7 +164,6 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
     </div>
   </div>
 </div>
-
 <div class="modal-overlay" id="settingsModal" style="display:none" onclick="if(event.target===this)closeSettings()">
   <div class="modal">
     <div class="modal-title">&#9881; Instellingen</div>
@@ -181,293 +172,279 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
       <select id="settingsCount"><option value="25">Laatste 25</option><option value="50" selected>Laatste 50</option><option value="100">Laatste 100</option><option value="200">Laatste 200</option></select></div>
     <div class="form-row"><label>Teams Webhook URL (optioneel)</label>
       <input type="text" id="settingsWebhook" placeholder="https://...webhook.office.com/...">
-      <div class="hint">Ontvang een Teams-bericht na elke analyse. Maak een Incoming Webhook aan in je Teams-kanaal.</div></div>
+      <div class="hint">Ontvang een Teams-bericht na elke analyse.</div></div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeSettings()">Annuleren</button><button class="btn btn-primary" onclick="saveSettings()">Opslaan</button></div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
-
 <script>
 let allItems=[], selectedId=null, pollTimer=null;
 
 window.addEventListener('load', async () => {
   const analyses = await fetch('/api/analyses').then(r=>r.json()).catch(()=>({analyses:{}}));
-  loadAnalyses(analyses.analyses || {});
+  syncAnalysesToItems(analyses.analyses||{});
 });
 
-function loadAnalyses(state) {
+function syncAnalysesToItems(state) {
   for(const item of allItems) {
     if(state[item.id]) {
-      item.status = 'done';
-      item.relevantieSCore = state[item.id].analysis?.relevantieSCore || null;
-      item.analyzedTitle = state[item.id].analysis?.title || null;
+      item.status='done';
+      item.relevantieSCore=state[item.id].analysis?.relevantieSCore||null;
+      item.analyzedTitle=state[item.id].analysis?.title||null;
     }
   }
   renderTable(); updateStats();
 }
 
 function openSettings() {
-  document.getElementById('settingsApiKey').value = localStorage.getItem('mc_api_key')||'';
-  document.getElementById('settingsCount').value = localStorage.getItem('mc_count')||'50';
-  document.getElementById('settingsWebhook').value = localStorage.getItem('mc_webhook')||'';
+  document.getElementById('settingsApiKey').value=localStorage.getItem('mc_api_key')||'';
+  document.getElementById('settingsCount').value=localStorage.getItem('mc_count')||'50';
+  document.getElementById('settingsWebhook').value=localStorage.getItem('mc_webhook')||'';
   document.getElementById('settingsModal').style.display='flex';
 }
-function closeSettings() { document.getElementById('settingsModal').style.display='none'; }
-function saveSettings() {
-  const key = document.getElementById('settingsApiKey').value.trim();
-  const count = document.getElementById('settingsCount').value;
-  const webhook = document.getElementById('settingsWebhook').value.trim();
-  if(key) localStorage.setItem('mc_api_key', key);
-  localStorage.setItem('mc_count', count);
-  if(webhook) localStorage.setItem('mc_webhook', webhook);
+function closeSettings(){document.getElementById('settingsModal').style.display='none';}
+function saveSettings(){
+  const k=document.getElementById('settingsApiKey').value.trim();
+  const c=document.getElementById('settingsCount').value;
+  const w=document.getElementById('settingsWebhook').value.trim();
+  if(k)localStorage.setItem('mc_api_key',k);
+  localStorage.setItem('mc_count',c);
+  if(w)localStorage.setItem('mc_webhook',w);
   closeSettings(); toast('Instellingen opgeslagen');
 }
 
-async function fetchItems() {
-  const btn = document.getElementById('fetchBtn');
+async function fetchItems(){
+  const btn=document.getElementById('fetchBtn');
   btn.disabled=true; btn.innerHTML='<div class="spinner"></div>&nbsp;Ophalen...';
-  try {
-    const count = localStorage.getItem('mc_count') || 50;
-    const data = await fetch(`/api/items?count=${count}`).then(r=>r.json());
+  try{
+    const count=localStorage.getItem('mc_count')||50;
+    const data=await fetch('/api/items?count='+count).then(r=>r.json());
     if(!data.ok) throw new Error(data.error);
-    allItems = data.items;
-
-    // Toon banner voor nieuwe items
-    const newItems = data.items.filter(i=>i.isNew);
-    if(newItems.length > 0) {
-      document.getElementById('newBannerText').textContent =
-        `${newItems.length} nieuwe items sinds je laatste bezoek`;
-      document.getElementById('newBanner').style.display = 'flex';
+    allItems=data.items;
+    const newItems=data.items.filter(i=>i.isNew);
+    if(newItems.length>0){
+      document.getElementById('newBannerText').textContent=newItems.length+' nieuwe items sinds je laatste bezoek';
+      document.getElementById('newBanner').style.display='flex';
     } else {
-      document.getElementById('newBanner').style.display = 'none';
+      document.getElementById('newBanner').style.display='none';
     }
-
     populateServiceFilter(); renderTable(); updateStats();
-    document.getElementById('analyzeAllBtn').disabled = false;
-    toast(`${allItems.length} items geladen${data.newCount > 0 ? `, ${data.newCount} nieuw` : ''}`);
-  } catch(e) { toast('Fout: '+e.message, true); }
-  finally { btn.disabled=false; btn.innerHTML='&#8635; Items ophalen'; }
+    document.getElementById('analyzeAllBtn').disabled=false;
+    toast(allItems.length+' items geladen'+(data.newCount>0?', '+data.newCount+' nieuw':''));
+  }catch(e){toast('Fout: '+e.message,true);}
+  finally{btn.disabled=false; btn.innerHTML='&#8635; Items ophalen';}
 }
 
-function populateServiceFilter() {
-  const sel = document.getElementById('serviceFilter');
-  const svcs = [...new Set(allItems.map(i=>i.service).filter(Boolean))].sort();
-  sel.innerHTML = '<option value="all">Alle services</option>';
-  svcs.forEach(s => { const o=document.createElement('option'); o.value=s; o.textContent=s; sel.appendChild(o); });
+function populateServiceFilter(){
+  const sel=document.getElementById('serviceFilter');
+  const svcs=[...new Set(allItems.map(i=>i.service).filter(Boolean))].sort();
+  sel.innerHTML='<option value="all">Alle services</option>';
+  svcs.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o);});
 }
 
-function scoreStars(score) {
+function scoreStars(score){
   if(!score) return '<span style="color:#ccc;font-size:11px">-</span>';
-  const colors = ['','#ef4444','#f97316','#eab308','#22c55e','#0078d4'];
-  const color = colors[score] || '#ccc';
-  return `<span style="color:${color};font-weight:700;font-size:13px">${'★'.repeat(score)}${'☆'.repeat(5-score)}</span>`;
+  const colors=['','#ef4444','#f97316','#eab308','#22c55e','#0078d4'];
+  return '<span style="color:'+colors[score]+';font-weight:700;font-size:13px">'+'★'.repeat(score)+'☆'.repeat(5-score)+'</span>';
 }
 
-function renderTable() {
-  const sf = document.getElementById('statusFilter').value;
-  const svf = document.getElementById('serviceFilter').value;
-  const scf = document.getElementById('scoreFilter').value;
-  const body = document.getElementById('itemBody'); body.innerHTML='';
-  const search = document.getElementById('searchInput').value.trim().toLowerCase();
-  const visible = allItems.filter(i => {
-    const statusOk = sf==='all' || i.status===sf || (!i.status && sf==='new');
-    const svcOk = svf==='all' || i.service===svf;
-    const scoreOk = scf==='all' || !i.relevantieSCore || i.relevantieSCore >= parseInt(scf);
-    const displayTitle = i.analyzedTitle || i.title;
-    const searchOk = !search || i.id.toLowerCase().includes(search) || displayTitle.toLowerCase().includes(search);
-    return statusOk && svcOk && scoreOk && searchOk;
+function renderTable(){
+  const sf=document.getElementById('statusFilter').value;
+  const svf=document.getElementById('serviceFilter').value;
+  const scf=document.getElementById('scoreFilter').value;
+  const search=document.getElementById('searchInput').value.trim().toLowerCase();
+  const body=document.getElementById('itemBody'); body.innerHTML='';
+  const visible=allItems.filter(i=>{
+    const statusOk=sf==='all'||i.status===sf||(sf==='new'&&!i.status);
+    const svcOk=svf==='all'||i.service===svf;
+    const scoreOk=scf==='all'||!i.relevantieSCore||i.relevantieSCore>=parseInt(scf);
+    const displayTitle=i.analyzedTitle||i.title;
+    const searchOk=!search||i.id.toLowerCase().includes(search)||displayTitle.toLowerCase().includes(search);
+    return statusOk&&svcOk&&scoreOk&&searchOk;
   });
-  if(!visible.length) { document.getElementById('itemTable').style.display='none'; document.getElementById('tableEmpty').style.display='flex'; return; }
-  document.getElementById('tableEmpty').style.display='none'; document.getElementById('itemTable').style.display='table';
-  visible.forEach(item => {
-    const tr = document.createElement('tr');
+  if(!visible.length){document.getElementById('itemTable').style.display='none';document.getElementById('tableEmpty').style.display='flex';return;}
+  document.getElementById('tableEmpty').style.display='none';document.getElementById('itemTable').style.display='table';
+  visible.forEach(item=>{
+    const tr=document.createElement('tr');
     if(item.id===selectedId) tr.classList.add('selected');
     if(item.isNew) tr.classList.add('is-new-item');
-    const badge = item.status==='done' ? '<span class="badge badge-done">&#10003; Gereed</span>' :
-                  item.status==='processing' ? '<span class="badge badge-proc">Bezig</span>' :
-                  '<span class="badge badge-new">&#9679; Nieuw</span>';
-    const newTag = item.isNew ? '<span class="badge badge-nieuw">Nieuw!</span>' : '';
-    tr.innerHTML = `<td><input type="checkbox" class="cb item-cb" data-id="${item.id}" onchange="updateSelCount()"></td>
-      <td class="td-id">${item.id}</td>
-      <td class="td-title">${escH(item.analyzedTitle || item.title)}${newTag}</td>
-      <td class="td-svc">${escH(item.service)}</td>
-      <td class="td-date">${escH(item.lastUpdated)}</td>
-      <td>${scoreStars(item.relevantieSCore)}</td>
-      <td>${badge}</td>`;
-    tr.addEventListener('click', e=>{ if(e.target.type==='checkbox')return; selectItem(item.id); });
+    const badge=item.status==='done'?'<span class="badge badge-done">&#10003; Gereed</span>':
+                item.status==='processing'?'<span class="badge badge-proc">Bezig</span>':
+                '<span class="badge badge-new">&#9679; Nieuw</span>';
+    const newTag=item.isNew?'<span class="badge badge-nieuw-tag">Nieuw!</span>':'';
+    const displayTitle=escH(item.analyzedTitle||item.title);
+    tr.innerHTML='<td><input type="checkbox" class="cb item-cb" data-id="'+item.id+'" onchange="updateSelCount()"></td>'+
+      '<td class="td-id">'+item.id+'</td>'+
+      '<td class="td-title">'+displayTitle+newTag+'</td>'+
+      '<td class="td-svc">'+escH(item.service)+'</td>'+
+      '<td class="td-date">'+escH(item.lastUpdated)+'</td>'+
+      '<td>'+scoreStars(item.relevantieSCore)+'</td>'+
+      '<td>'+badge+'</td>';
+    tr.addEventListener('click',e=>{if(e.target.type==='checkbox')return;selectItem(item.id);});
     body.appendChild(tr);
   });
   updateStats();
 }
 
-function toggleSelectAll(cb) { document.querySelectorAll('.item-cb').forEach(c=>c.checked=cb.checked); updateSelCount(); }
-function updateSelCount() {
+function toggleSelectAll(cb){document.querySelectorAll('.item-cb').forEach(c=>c.checked=cb.checked);updateSelCount();}
+function updateSelCount(){
   const n=document.querySelectorAll('.item-cb:checked').length;
   document.getElementById('statSel').textContent=n;
   document.getElementById('analyzeBtn').disabled=n===0;
   document.getElementById('dlZipBtn').disabled=n===0;
 }
-function getSelectedIds() { return Array.from(document.querySelectorAll('.item-cb:checked')).map(c=>c.dataset.id); }
-function updateStats() {
+function getSelectedIds(){return Array.from(document.querySelectorAll('.item-cb:checked')).map(c=>c.dataset.id);}
+function updateStats(){
   document.getElementById('statTotal').textContent=allItems.length;
   document.getElementById('statDone').textContent=allItems.filter(i=>i.status==='done').length;
   document.getElementById('statNew').textContent=allItems.filter(i=>i.status==='new'||!i.status).length;
+  document.getElementById('dlZipBtn').disabled=!allItems.some(i=>i.status==='done');
 }
 
-async function selectItem(id) {
+function buildPreviewHtml(a){
+  const score=a.relevantieSCore||0;
+  const scoreColors=['','#ef4444','#f97316','#eab308','#22c55e','#0078d4'];
+  const scoreLabels=['','Nauwelijks relevant','Beperkt relevant','Gemiddeld relevant','Relevant','Zeer relevant'];
+  const scoreHtml=score?'<div class="relevantie-bar"><div style="font-size:22px;font-weight:800;color:'+scoreColors[score]+'">'+'★'.repeat(score)+'☆'.repeat(5-score)+'</div><div><div style="font-size:12px;color:var(--muted)">'+scoreLabels[score]+' ('+score+'/5)</div><div style="font-size:13px;color:var(--text);margin-top:2px">'+escH(a.relevantieUitleg||'')+'</div></div></div>':'';
+  const oneLinerHtml=a.oneLiner?'<div class="one-liner-box"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Samenvatting voor Planner</div><div style="font-size:13px;line-height:1.6">'+escH(a.oneLiner)+'</div><button onclick="copyOneLiner(\''+a.oneLiner.replace(/'/g,"\\'")+'\')" style="margin-top:8px;padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">&#128203; Kopieer</button></div>':'';
+  const planHtml=(Array.isArray(a.planning)?a.planning:[a.planning]).join('<br>');
+  const bullHtml=a.omschrijvingBullets?.length?'<ul class="p-bullets">'+a.omschrijvingBullets.map(b=>'<li>'+escH(b)+'</li>').join('')+'</ul>':'';
+  const beheerHtml=Array.isArray(a.impactBeheer)?'<ul class="p-bullets">'+a.impactBeheer.map(b=>'<li>'+escH(b)+'</li>').join('')+'</ul>':escH(a.impactBeheer);
+  let linksHtml='';
+  if(a.geenSpecifiekeLearnPagina) linksHtml+='<p class="no-learn-note">Geen specifieke Microsoft Learn-pagina gevonden. Hieronder de meest relevante officiële bronnen.</p>';
+  (a.links||[]).forEach(l=>{linksHtml+='<div class="link-row"><strong>'+escH(l.label)+':</strong>'+(l.url?'<a href="'+l.url+'" target="_blank" style="font-size:13px">'+escH(l.url)+'</a>':'<span style="font-size:13px;color:var(--muted)">Microsoft Message Center</span>')+'</div>';});
+  return '<div class="preview-card">'+scoreHtml+oneLinerHtml+
+    '<div id="images-'+escH(a.mcId||'')+'" style="margin-bottom:8px"></div>'+
+    '<div class="p-main-title">'+escH(a.title)+'</div>'+
+    '<div class="p-section"><div class="p-lbl">Platform:</div><div class="p-val">'+escH(a.platform)+'</div></div>'+
+    '<div class="p-section"><div class="p-lbl">Link naar Microsoft:</div><div class="p-val">Roadmap ID: '+escH(a.roadmapId||'niet van toepassing')+'<br><a href="'+a.roadmapUrl+'" target="_blank">'+escH(a.roadmapUrl)+'</a></div></div>'+
+    '<div class="p-section"><div class="p-lbl">Link naar Teams taak:</div><div class="p-val">Planner - '+escH(a.plannerTask)+'</div></div>'+
+    '<div class="p-section"><div class="p-lbl">Planning:</div><div class="p-val">'+planHtml+'</div></div>'+
+    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Omschrijving wijziging:</div><div class="p-val">'+escH(a.omschrijvingIntro)+'</div>'+bullHtml+(a.omschrijvingSlot?'<div class="p-val" style="margin-top:8px">'+escH(a.omschrijvingSlot)+'</div>':'')+'</div>'+
+    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Impactanalyse:</div><div class="p-val"><strong>Impact voor organisaties:</strong> '+escH(a.impactOrganisaties)+'<br><br><strong>Technische impact:</strong> '+escH(a.impactTechnisch)+'<br><br><strong>Functionele impact:</strong> '+escH(a.impactFunctioneel)+'<br><br><strong>Wijzigingen in beheer of gedrag:</strong>'+beheerHtml+'</div></div>'+
+    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Links:</div><div class="p-val">'+linksHtml+'</div></div></div>';
+}
+
+async function selectItem(id){
   selectedId=id;
   document.querySelectorAll('tbody tr').forEach(tr=>tr.classList.remove('selected'));
-  document.querySelector(`[data-id="${id}"]`)?.closest('tr')?.classList.add('selected');
-  document.getElementById('tablePane').classList.remove('full'); document.getElementById('tablePane').classList.add('half');
+  document.querySelector('[data-id="'+id+'"]')?.closest('tr')?.classList.add('selected');
+  document.getElementById('tablePane').classList.remove('full');document.getElementById('tablePane').classList.add('half');
   document.getElementById('detailPane').style.display='flex';
-  document.getElementById('detailTitle').textContent = id;
-  document.getElementById('detailScroll').innerHTML = '<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Laden...</p></div>';
-  try {
-    const resp = await fetch('/api/analyses');
-    const analyses = await resp.json();
-    const entry = analyses.analyses?.[id];
-    const a = entry?.analysis;
-    if(a) {
-      document.getElementById('detailTitle').textContent = a.mcId||id;
-      document.getElementById('dlSingleBtn').disabled = false;
-      document.getElementById('detailScroll').innerHTML = buildPreviewHtml(a);
+  document.getElementById('detailTitle').textContent=id;
+  document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Laden...</p></div>';
+  try{
+    const data=await fetch('/api/analyses').then(r=>r.json());
+    const entry=data.analyses?.[id];
+    const a=entry?.analysis;
+    if(a){
+      document.getElementById('detailTitle').textContent=a.mcId||id;
+      document.getElementById('dlSingleBtn').disabled=false;
+      document.getElementById('detailScroll').innerHTML=buildPreviewHtml(a);
       loadImages(a.mcId||id);
     } else {
-      document.getElementById('detailTitle').textContent = id;
-      document.getElementById('dlSingleBtn').disabled = true;
-      document.getElementById('detailScroll').innerHTML = '<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Nog niet geanalyseerd.</p></div>';
+      document.getElementById('detailTitle').textContent=id;
+      document.getElementById('dlSingleBtn').disabled=true;
+      document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Nog niet geanalyseerd.</p></div>';
     }
-  } catch(e) {
-    document.getElementById('detailScroll').innerHTML = '<div style="padding:20px"><p style="font-size:13px;color:#c50f1f">Fout bij laden: '+e.message+'</p></div>';
+  }catch(e){
+    document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:#c50f1f">Fout bij laden: '+e.message+'</p></div>';
   }
 }
 
-function closeDetail() {
+function closeDetail(){
   selectedId=null;
-  document.getElementById('tablePane').classList.remove('half'); document.getElementById('tablePane').classList.add('full');
+  document.getElementById('tablePane').classList.remove('half');document.getElementById('tablePane').classList.add('full');
   document.getElementById('detailPane').style.display='none';
 }
 
-async function analyzeSelected() {
-  const ids = getSelectedIds();
-  const items = allItems.filter(i=>ids.includes(i.id));
-  await startAnalysis(items, false);
-}
+async function analyzeSelected(){const ids=getSelectedIds();const items=allItems.filter(i=>ids.includes(i.id));await startAnalysis(items,false);}
+async function analyzeAll(){const items=allItems.filter(i=>i.status==='new'||!i.status);if(!items.length){toast('Geen nieuwe items');return;}await startAnalysis(items,false);}
 
-async function analyzeAll() {
-  const items = allItems.filter(i=>i.status==='new'||!i.status);
-  if(!items.length){toast('Geen nieuwe items');return;}
-  await startAnalysis(items, false);
-}
-
-async function startAnalysis(items, force) {
-  const api_key = localStorage.getItem('mc_api_key')||'';
+async function startAnalysis(items,force){
+  const api_key=localStorage.getItem('mc_api_key')||'';
   if(!api_key){openSettings();toast('Stel eerst je API key in',true);return;}
-  const webhook_url = localStorage.getItem('mc_webhook')||'';
-  const resp = await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({api_key, items, force, webhook_url})}).then(r=>r.json());
+  const webhook_url=localStorage.getItem('mc_webhook')||'';
+  const resp=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({api_key,items,force,webhook_url})}).then(r=>r.json());
   if(!resp.ok){toast('Fout: '+resp.error,true);return;}
-  items.forEach(i=>{ const item=allItems.find(x=>x.id===i.id); if(item)item.status='processing'; });
+  items.forEach(i=>{const item=allItems.find(x=>x.id===i.id);if(item)item.status='processing';});
   renderTable();
   document.getElementById('progressWrap').style.display='block';
   document.getElementById('resetBtn').style.display='flex';
-  pollTimer = setInterval(pollProgress, 1500);
+  pollTimer=setInterval(pollProgress,2000);
 }
 
-async function pollProgress() {
-  try {
-    const p = await fetch('/api/progress').then(r=>r.json());
-    const pct = p.total>0 ? Math.round((p.done/p.total)*100) : 0;
-    document.getElementById('progressFill').style.width = pct+'%';
-    document.getElementById('progressLbl').textContent = p.running ?
-      `Analyseren ${p.done}/${p.total}: ${p.current}` : `Klaar - ${p.done} verwerkt`;
-    document.getElementById('resetBtn').style.display = p.running ? 'flex' : 'none';
-    const analyses = await fetch('/api/analyses').then(r=>r.json());
-    for(const item of allItems) {
-      if(analyses.analyses?.[item.id]) {
-        item.status = 'done';
-        item.relevantieSCore = analyses.analyses[item.id].analysis?.relevantieSCore || null;
-        item.analyzedTitle = analyses.analyses[item.id].analysis?.title || null;
+async function pollProgress(){
+  try{
+    const p=await fetch('/api/progress').then(r=>r.json());
+    const pct=p.total>0?Math.round((p.done/p.total)*100):0;
+    document.getElementById('progressFill').style.width=pct+'%';
+    document.getElementById('progressLbl').textContent=p.running?
+      'Analyseren '+p.done+'/'+p.total+': '+p.current:'Klaar - '+p.done+' verwerkt';
+    document.getElementById('resetBtn').style.display=p.running?'flex':'none';
+    const data=await fetch('/api/analyses').then(r=>r.json());
+    const state=data.analyses||{};
+    for(const item of allItems){
+      if(state[item.id]){
+        item.status='done';
+        item.relevantieSCore=state[item.id].analysis?.relevantieSCore||null;
+        item.analyzedTitle=state[item.id].analysis?.title||null;
       }
     }
     renderTable(); updateStats();
-    if(!p.running) {
-      clearInterval(pollTimer); pollTimer = null;
-      setTimeout(()=>{ document.getElementById('progressWrap').style.display='none'; },3000);
-      document.getElementById('resetBtn').style.display='none';
-      toast(`Analyse klaar - ${p.done} verwerkt`);
-      if(selectedId && analyses.analyses?.[selectedId]) selectItem(selectedId);
+    if(!p.running){
+      clearInterval(pollTimer); pollTimer=null;
+      setTimeout(()=>{document.getElementById('progressWrap').style.display='none';},3000);
+      toast('Analyse klaar - '+p.done+' verwerkt');
+      if(selectedId&&state[selectedId]) selectItem(selectedId);
     }
-  } catch(e) { console.warn('Poll fout:', e); }
-}
-async function downloadSelectedZip() {
-  const ids = getSelectedIds().filter(id => allItems.find(i=>i.id===id)?.status==='done');
-  if(!ids.length){toast('Selecteer eerst geanalyseerde items',true);return;}
-  toast(`ZIP wordt aangemaakt voor ${ids.length} items...`);
-  const resp = await fetch('/api/download-zip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
-  if(!resp.ok){toast('Fout bij aanmaken ZIP',true);return;}
-  const blob = await resp.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href=url;
-  a.download=`MC_analyses_${new Date().toISOString().slice(0,10)}.zip`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast(`ZIP gedownload (${ids.length} bestanden)`);
+  }catch(e){console.warn('Poll fout:',e);}
 }
 
-async function resetAnalysis() {
+async function resetAnalysis(){
   if(!confirm('Weet je zeker dat je de analyse wilt stoppen?')) return;
-  await fetch('/api/reset', {method:'POST'});
-  clearInterval(pollTimer);
+  await fetch('/api/reset',{method:'POST'});
+  clearInterval(pollTimer); pollTimer=null;
   document.getElementById('progressWrap').style.display='none';
   document.getElementById('resetBtn').style.display='none';
-  for(const item of allItems) {
-    if(item.status==='processing') item.status='new';
-  }
-  renderTable(); updateStats();
-  toast('Analyse gestopt');
+  for(const item of allItems){if(item.status==='processing')item.status='new';}
+  renderTable(); updateStats(); toast('Analyse gestopt');
 }
-async function loadImages(mcId) {
-  const container = document.getElementById('images-'+mcId);
-  if(!container) return;
-  container.innerHTML = '<div style="font-size:12px;color:var(--muted)">Afbeeldingen laden...</div>';
-  try {
-    const data = await fetch('/api/images/'+mcId).then(r=>r.json());
-    if(!data.images || data.images.length === 0) {
-      container.innerHTML = '';
-      return;
-    }
-    const items = data.images.map((img,i) =>
-      `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <span style="font-size:16px">&#128444;</span>
-        <a href="${img.url}" target="_blank" style="font-size:13px;color:var(--accent);text-decoration:none">
-          ${escH(img.alt || 'Afbeelding '+img.index)} &#8599;
-        </a>
-      </div>`
-    ).join('');
-    container.innerHTML = `
-      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:8px">
-          Afbeeldingen in dit item (${data.images.length})
-        </div>
-        ${items}
-      </div>`;
-  } catch(e) {
-    container.innerHTML = '';
-  }
+
+function downloadSingle(){if(!selectedId)return;window.location.href='/api/download/'+selectedId;}
+
+async function downloadSelectedZip(){
+  const ids=getSelectedIds().filter(id=>allItems.find(i=>i.id===id)?.status==='done');
+  if(!ids.length){toast('Selecteer eerst geanalyseerde items',true);return;}
+  toast('ZIP wordt aangemaakt voor '+ids.length+' items...');
+  const resp=await fetch('/api/download-zip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
+  if(!resp.ok){toast('Fout bij aanmaken ZIP',true);return;}
+  const blob=await resp.blob();
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;
+  a.download='MC_analyses_'+new Date().toISOString().slice(0,10)+'.zip';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  toast('ZIP gedownload ('+ids.length+' bestanden)');
 }
-function copyOneLiner(text) {
-  navigator.clipboard.writeText(text).then(() => {
-    toast('Gekopieerd naar klembord!');
-  }).catch(() => {
-    // Fallback
-    const el = document.createElement('textarea');
-    el.value = text; document.body.appendChild(el);
-    el.select(); document.execCommand('copy');
-    document.body.removeChild(el);
-    toast('Gekopieerd naar klembord!');
+
+async function loadImages(mcId){
+  const container=document.getElementById('images-'+mcId);
+  if(!container)return;
+  try{
+    const data=await fetch('/api/images/'+mcId).then(r=>r.json());
+    if(!data.images||data.images.length===0){container.innerHTML='';return;}
+    const items=data.images.map(img=>'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">&#128444;</span><a href="'+img.url+'" target="_blank" style="font-size:13px;color:var(--accent);text-decoration:none">'+escH(img.alt||'Afbeelding '+img.index)+' &#8599;</a></div>').join('');
+    container.innerHTML='<div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:8px">Afbeeldingen in dit item ('+data.images.length+')</div>'+items+'</div>';
+  }catch(e){if(container)container.innerHTML='';}
+}
+
+function copyOneLiner(text){
+  navigator.clipboard.writeText(text).then(()=>toast('Gekopieerd naar klembord!')).catch(()=>{
+    const el=document.createElement('textarea');el.value=text;document.body.appendChild(el);el.select();document.execCommand('copy');document.body.removeChild(el);toast('Gekopieerd!');
   });
 }
+
 function escH(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 let toastTimer;
 function toast(msg,err=false){const el=document.getElementById('toast');el.textContent=msg;el.style.background=err?'#c50f1f':'#0f1e2e';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3500);}
