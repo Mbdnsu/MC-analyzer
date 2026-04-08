@@ -7,9 +7,15 @@ from bs4 import BeautifulSoup
 import anthropic
 from docx import Document
 from docx.shared import Pt
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 app = Flask(__name__)
-OUTPUT_DIR = Path("output")
+# Gebruik /data als persistent volume (Railway), anders lokale output map
+if Path("/data").exists():
+    OUTPUT_DIR = Path("/data")
+else:
+    OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 STATE_FILE = OUTPUT_DIR / ".state.json"
 SEEN_FILE = OUTPUT_DIR / ".seen.json"
@@ -30,22 +36,58 @@ De relevantieScore is een getal van 1 tot 5:
 progress = {"total": 0, "done": 0, "current": "", "running": False, "errors": [], "new_analyzed": []}
 
 def load_state():
-    if STATE_FILE.exists():
-        try: return json.loads(STATE_FILE.read_text())
-        except: pass
-    return {}
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT * FROM analyses')
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+        return {row['mc_id']: {
+            'title': row['title'],
+            'filename': row['filename'],
+            'analyzed_at': row['analyzed_at'],
+            'analysis': row['analysis']
+        } for row in rows}
+    except Exception as e:
+        print(f"load_state fout: {e}")
+        return {}
 
-def save_state(state):
-    STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False))
+def save_analysis(mc_id, title, filename, analyzed_at, analysis):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('''INSERT INTO analyses (mc_id, title, filename, analyzed_at, analysis)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (mc_id) DO UPDATE SET
+            title=EXCLUDED.title, filename=EXCLUDED.filename,
+            analyzed_at=EXCLUDED.analyzed_at, analysis=EXCLUDED.analysis''',
+            (mc_id, title, filename, analyzed_at, json.dumps(analysis)))
+        conn.commit()
+        cur.close(); conn.close()
+    except Exception as e:
+        print(f"save_analysis fout: {e}")
 
 def load_seen():
-    if SEEN_FILE.exists():
-        try: return set(json.loads(SEEN_FILE.read_text()))
-        except: pass
-    return set()
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('SELECT mc_id FROM seen_items')
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+        return set(row[0] for row in rows)
+    except:
+        return set()
 
 def save_seen(seen):
-    SEEN_FILE.write_text(json.dumps(list(seen)))
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        for mc_id in seen:
+            cur.execute('INSERT INTO seen_items (mc_id) VALUES (%s) ON CONFLICT DO NOTHING', (mc_id,))
+        conn.commit()
+        cur.close(); conn.close()
+    except Exception as e:
+        print(f"save_seen fout: {e}")
 
 def fetch_mc_list(count):
     resp = requests.get("https://mc.merill.net", timeout=15)
@@ -166,7 +208,6 @@ def send_teams_notification(webhook_url, new_items):
 def run_analysis(api_key, items, force, webhook_url=""):
     global progress
     client = anthropic.Anthropic(api_key=api_key)
-    state = load_state()
     progress["running"] = True
     progress["total"] = len(items)
     progress["done"] = 0
@@ -189,9 +230,7 @@ def run_analysis(api_key, items, force, webhook_url=""):
             filename = f"{safe_title}.docx"
             docx_path = OUTPUT_DIR / filename
             build_docx(result, docx_path)
-            state[mc_id] = {"title": item["title"], "analyzed_at": datetime.now().isoformat(),
-                            "docx": str(docx_path), "filename": filename, "analysis": result}
-            save_state(state)
+            save_analysis(mc_id, item["title"], filename, datetime.now().isoformat(), result)
             progress["new_analyzed"].append({
                 "mcId": mc_id, "title": result.get("title", item["title"]),
                 "relevantieSCore": result.get("relevantieSCore", 3)
@@ -266,12 +305,17 @@ def get_analyses():
 def download_file(mc_id):
     state = load_state()
     entry = state.get(mc_id, {})
+    if not entry:
+        return "Niet gevonden", 404
+    analysis = entry.get("analysis", {})
     filename = entry.get("filename", f"{mc_id}_analyse.docx")
+    # Bouw docx opnieuw als het niet meer bestaat
     path = OUTPUT_DIR / filename
     if not path.exists():
-        path = OUTPUT_DIR / f"{mc_id}_analyse.docx"
-        filename = f"{mc_id}_analyse.docx"
-    if not path.exists(): return "Niet gevonden", 404
+        try:
+            build_docx(analysis, path)
+        except Exception as e:
+            return f"Fout bij aanmaken document: {e}", 500
     return send_file(str(path), as_attachment=True, download_name=filename)
 
 @app.route("/api/download-zip", methods=["POST"])
@@ -283,11 +327,12 @@ def download_zip():
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for mc_id in ids:
             entry = state.get(mc_id, {})
+            if not entry: continue
             filename = entry.get("filename", f"{mc_id}_analyse.docx")
             path = OUTPUT_DIR / filename
             if not path.exists():
-                path = OUTPUT_DIR / f"{mc_id}_analyse.docx"
-                filename = f"{mc_id}_analyse.docx"
+                try: build_docx(entry.get("analysis", {}), path)
+                except: continue
             if path.exists(): zf.write(path, filename)
     buf.seek(0)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")

@@ -3,4 +3,4 @@ requests
 beautifulsoup4
 anthropic
 python-docx
-gunicorn
+psycopg2-binary
