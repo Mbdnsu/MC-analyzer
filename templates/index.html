@@ -42,7 +42,7 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
 .td-svc{font-size:12px;color:var(--muted)}.td-date{font-size:12px;color:var(--muted);white-space:nowrap}
 .badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap}
 .badge-new{background:#dff6dd;color:#107c10}.badge-done{background:#f0f4ff;color:#0078d4}
-.badge-proc{background:#fff4ce;color:#835b00}.badge-nieuw-tag{background:#fef3c7;color:#92400e;margin-left:4px}
+.badge-proc{background:#fff4ce;color:#835b00}.badge-nieuw-tag{background:#fef3c7;color:#92400e;margin-left:4px}.badge-openstaand{background:#f3f4f6;color:#6b7280}
 .cb{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
 .detail-pane{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .detail-header{background:var(--surface);padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
@@ -94,7 +94,8 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
     <div class="toolbar-left">
       <button class="btn btn-primary" onclick="fetchItems()" id="fetchBtn">&#8635; Items ophalen</button>
       <button class="btn btn-green" onclick="analyzeSelected()" id="analyzeBtn" disabled>&#9654; Analyseer geselecteerde</button>
-      <button class="btn btn-green" onclick="analyzeAll()" id="analyzeAllBtn" disabled>&#9654;&#9654; Analyseer alle nieuwe</button>
+      <button class="btn btn-green" onclick="analyzeAll()" id="analyzeAllBtn" disabled>&#9654;&#9654; Analyseer nieuwe</button>
+      <button class="btn btn-ghost" onclick="analyzeAllUnanalyzed()" id="analyzeUnanalyzedBtn" disabled>&#9654; Analyseer alle ongeanalyseerd</button>
       <button class="btn btn-ghost" onclick="downloadSelectedZip()" id="dlZipBtn" disabled>&#8595; Download ZIP</button>
       <button class="btn btn-ghost" onclick="resetAnalysis()" id="resetBtn" style="display:none;color:#c50f1f;border-color:#fecaca">&#9632; Stop</button>
     </div>
@@ -105,7 +106,8 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
       <span class="filter-label">Filter:</span>
       <select id="statusFilter" onchange="renderTable()">
         <option value="all">Alle items</option>
-        <option value="new" selected>Alleen nieuw</option>
+        <option value="isNew" selected>Alleen nieuw</option>
+        <option value="new">Openstaand</option>
         <option value="done">Geanalyseerd</option>
       </select>
       <select id="scoreFilter" onchange="renderTable()">
@@ -126,6 +128,8 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
         <div class="stat"><span class="stat-num" id="statTotal">0</span><span class="stat-lbl">Totaal</span></div>
         <div class="stat-sep"></div>
         <div class="stat"><span class="stat-num" id="statNew">0</span><span class="stat-lbl">Nieuw</span></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><span class="stat-num" id="statOpen">0</span><span class="stat-lbl">Openstaand</span></div>
         <div class="stat-sep"></div>
         <div class="stat"><span class="stat-num" id="statDone">0</span><span class="stat-lbl">Geanalyseerd</span></div>
         <div class="stat-sep"></div>
@@ -230,6 +234,7 @@ async function fetchItems(){
     }
     populateServiceFilter(); renderTable(); updateStats();
     document.getElementById('analyzeAllBtn').disabled=false;
+    document.getElementById('analyzeUnanalyzedBtn').disabled=false;
     toast(allItems.length+' items geladen'+(data.newCount>0?', '+data.newCount+' nieuw':''));
   }catch(e){toast('Fout: '+e.message,true);}
   finally{btn.disabled=false; btn.innerHTML='&#8635; Items ophalen';}
@@ -255,7 +260,7 @@ function renderTable(){
   const search=document.getElementById('searchInput').value.trim().toLowerCase();
   const body=document.getElementById('itemBody'); body.innerHTML='';
   const visible=allItems.filter(i=>{
-    const statusOk=sf==='all'||i.status===sf||(sf==='new'&&!i.status);
+    const statusOk=sf==='all'||(sf==='isNew'&&i.isNew&&i.status!=='done')||(sf==='new'&&!i.isNew&&i.status!=='done')||i.status===sf;
     const svcOk=svf==='all'||i.service===svf;
     const scoreOk=scf==='all'||!i.relevantieSCore||i.relevantieSCore>=parseInt(scf);
     const displayTitle=i.analyzedTitle||i.title;
@@ -270,7 +275,8 @@ function renderTable(){
     if(item.isNew) tr.classList.add('is-new-item');
     const badge=item.status==='done'?'<span class="badge badge-done">&#10003; Gereed</span>':
                 item.status==='processing'?'<span class="badge badge-proc">Bezig</span>':
-                '<span class="badge badge-new">&#9679; Nieuw</span>';
+                item.isNew?'<span class="badge badge-new">&#9679; Nieuw</span>':
+                '<span class="badge badge-openstaand">&#9675; Openstaand</span>';
     const newTag=item.isNew?'<span class="badge badge-nieuw-tag">Nieuw!</span>':'';
     const displayTitle=escH(item.analyzedTitle||item.title);
     tr.innerHTML='<td><input type="checkbox" class="cb item-cb" data-id="'+item.id+'" onchange="updateSelCount()"></td>'+
@@ -297,7 +303,8 @@ function getSelectedIds(){return Array.from(document.querySelectorAll('.item-cb:
 function updateStats(){
   document.getElementById('statTotal').textContent=allItems.length;
   document.getElementById('statDone').textContent=allItems.filter(i=>i.status==='done').length;
-  document.getElementById('statNew').textContent=allItems.filter(i=>i.status==='new'||!i.status).length;
+  document.getElementById('statNew').textContent=allItems.filter(i=>i.isNew&&i.status!=='done').length;
+  document.getElementById('statOpen').textContent=allItems.filter(i=>!i.isNew&&i.status!=='done').length;
   document.getElementById('dlZipBtn').disabled=!allItems.some(i=>i.status==='done');
 }
 
@@ -359,7 +366,13 @@ function closeDetail(){
 }
 
 async function analyzeSelected(){const ids=getSelectedIds();const items=allItems.filter(i=>ids.includes(i.id));await startAnalysis(items,false);}
-async function analyzeAll(){const items=allItems.filter(i=>i.status==='new'||!i.status);if(!items.length){toast('Geen nieuwe items');return;}await startAnalysis(items,false);}
+async function analyzeAllUnanalyzed(){
+  const items=allItems.filter(i=>i.status!=='done');
+  if(!items.length){toast('Alle items zijn al geanalyseerd');return;}
+  if(!confirm('Weet je zeker dat je alle '+items.length+' ongeanalyseerde items wilt analyseren?')) return;
+  await startAnalysis(items,false);
+}
+async function analyzeAll(){const items=allItems.filter(i=>i.isNew&&i.status!=='done');if(!items.length){toast('Geen nieuwe items gevonden sinds je laatste bezoek');return;}await startAnalysis(items,false);}
 
 async function startAnalysis(items,force){
   const api_key=localStorage.getItem('mc_api_key')||'';
