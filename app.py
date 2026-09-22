@@ -248,6 +248,12 @@ Je output wordt afgedwongen via de "return_analysis" tool. Rond je analyse ALTIJ
 
 relevantieSCore: 1=nauwelijks relevant, 2=beperkt, 3=gemiddeld, 4=relevant, 5=zeer relevant/actie vereist
 
+oneLiner - dit is de "Samenvatting voor Planner": een duidelijke, volledige maar makkelijk te begrijpen beschrijving van het item in gewone taal, geschikt om zo hardop voor te lezen of te plakken in een Teams-chat tijdens een overleg met mensen die dit bericht niet gelezen hebben en geen achtergrondkennis hebben. Geen losse structuur/labels/bullets nodig - gewoon een lopende tekst van 3-5 zinnen. Te mager (1 korte zin) is NIET goed genoeg.
+- Focus vooral op WAT ER VERANDERT: leg concreet en in gewone taal uit wat de wijziging inhoudt, voor wie, en hoe het er in de praktijk uitziet. Dit is het belangrijkste deel en mag het meeste ruimte krijgen.
+- Verwerk er natuurlijk doorheen waarom dit de moeite waard is om te weten (praktische relevantie), maar hoeft geen apart kopje te zijn.
+- Actie/planning is ondergeschikt: noem een concrete actie of deadline alleen als die er ECHT is en relevant is om te weten, in 1 bijzin - forceer dit niet als het er niet toe doet.
+- Vermijd vage woorden als "mogelijk" of "kan invloed hebben" - wees concreet op basis van wat je weet, geen jargon of onuitgelegde afkortingen.
+
 adminConfig - je hebt een web_search tool tot je beschikking, gebruik die actief voor dit onderdeel:
 - Noemt de brontekst zelf al een concrete admin-instelling met locatie? Dan "bron":"vermeld in bericht", geen zoekopdracht nodig.
 - Noemt de brontekst dat NIET (de meerderheid van de items): zoek zelf op Microsoft Learn / Microsoft Tech Community naar de exacte admin-instelling voor deze specifieke feature (zoekterm: featurenaam + "admin" of "policy" of "settings"). Vind je een concrete, actuele pagina die de locatie bevestigt: "bron":"webzoekopdracht", "bronUrl" naar die pagina, en "locatie"/"stappen" gebaseerd op wat die pagina zegt.
@@ -537,7 +543,7 @@ ANALYSIS_TOOL = {
             "roadmapUrl": {"type": "string"},
             "plannerTask": {"type": "string"},
             "planning": {"type": "array", "items": {"type": "string"}},
-            "oneLiner": {"type": "string"},
+            "oneLiner": {"type": "string", "description": "Volledige, makkelijk te begrijpen lopende tekst (3-5 zinnen) die vooral uitlegt wat er verandert - geen losse structuur/labels, en NIET slechts 1 korte zin."},
             "omschrijvingIntro": {"type": "string"},
             "omschrijvingBullets": {"type": "array", "items": {"type": "string"}},
             "omschrijvingSlot": {"type": "string"},
