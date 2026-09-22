@@ -257,8 +257,9 @@ adminConfig - je hebt een web_search tool tot je beschikking, gebruik die actief
 - Noemt de brontekst zelf al een concrete admin-instelling met locatie? Dan "bron":"vermeld in bericht", geen zoekopdracht nodig.
 - Noemt de brontekst dat NIET (de meerderheid van de items): zoek zelf op Microsoft Learn / Microsoft Tech Community naar de exacte admin-instelling voor deze specifieke feature (zoekterm: featurenaam + "admin" of "policy" of "settings"). Vind je een concrete, actuele pagina die de locatie bevestigt: "bron":"webzoekopdracht", "bronUrl" naar die pagina, en "locatie"/"stappen" gebaseerd op wat die pagina zegt.
 - Levert de zoekopdracht niets bruikbaars op: val terug op "bron":"algemene kennis" met je beste inschatting op basis van platform en type wijziging, "bronUrl":null, en zet in "toelichting" ALTIJD: "Niet gevonden via zoekopdracht of in dit bericht, geschat op basis van algemene kennis - verifieer in het beheercentrum voor je dit in een RFC verwerkt."
-- "mogelijk":false alleen als expliciet blijkt (uit bericht of zoekopdracht) dat er geen adminbeheer/opt-out is, of het type wijziging inherent geen instelling kan hebben (bv. backend-only capaciteitsupdate). "stappen":[], "rollen":[] in dat geval.
-- "rollen": bij "mogelijk":true de EXACTE, officiele Microsoft Entra ID / Microsoft 365 rolnaam die minimaal nodig is (bv. "Teams Administrator", "SharePoint Administrator", "Exchange Administrator", "Intune Administrator", "Security Administrator", "Global Administrator"), least privilege - noem Global Administrator alleen als er geen preciezere rol bestaat. Geen enkele zekerheid, ook niet na zoeken? Laat "rollen" leeg.
+- "mogelijk":false alleen als expliciet blijkt (uit bericht of zoekopdracht) dat er geen adminbeheer/opt-out is, of het type wijziging inherent geen instelling kan hebben (bv. backend-only capaciteitsupdate). "stappen":[], "rollen":[] in dat geval - MAAR "bron" en "toelichting" blijven verplicht: zet "bron" op de bron van je conclusie dat er geen instelling is (meestal "algemene kennis" of "webzoekopdracht"), en leg in "toelichting" kort uit WAAROM er geen adminconfig is.
+- "rollen": bij "mogelijk":true de EXACTE, officiele Microsoft Entra ID / Microsoft 365 rolnaam die minimaal nodig is (bv. "Teams Administrator", "SharePoint Administrator", "Exchange Administrator", "Intune Administrator", "Security Administrator", "Global Administrator"), least privilege - noem Global Administrator alleen als er geen preciezere rol bestaat.
+- BELANGRIJK: "bron", "locatie", "stappen", "rollen" en "toelichting" zijn ALLEMAAL verplichte velden in de tool-call (mogen niet ontbreken). Bij "mogelijk":true moeten "locatie" en "stappen" ECHT een concrete waarde hebben - nooit leeg laten, ook niet als je onzeker bent: gebruik dan je beste inschatting met "bron":"algemene kennis" en het bijbehorende voorbehoud in "toelichting". Is er ondanks zoeken geen enkele rol te noemen, zet "rollen" dan op een lege lijst [] (dat mag wel leeg).
 
 Web search: je hebt een web_search tool tot je beschikking (beperkt tot learn.microsoft.com, techcommunity.microsoft.com, support.microsoft.com). Gebruik die niet alleen voor adminConfig, maar voor de hele analyse waar de brontekst te summier of gedateerd is:
 - omschrijvingIntro/omschrijvingBullets: zoek de officiele Microsoft Learn-pagina op als de brontekst kort of vaag is, en verwerk relevante details (hoe het precies werkt, voor wie, uitzonderingen) in de omschrijving.
@@ -571,10 +572,11 @@ ANALYSIS_TOOL = {
                     "rollen": {"type": "array", "items": {"type": "string"}},
                     "toelichting": {"type": "string"},
                 },
-                "required": ["mogelijk"],
+                "required": ["mogelijk", "bron", "locatie", "stappen", "rollen", "toelichting"],
             },
         },
-        "required": ["mcId", "title", "platform", "relevantieSCore", "relevantieUitleg", "adminConfig"],
+        "required": ["mcId", "title", "platform", "planning", "omschrijvingIntro", "impactOrganisaties",
+                     "impactTechnisch", "impactFunctioneel", "relevantieSCore", "relevantieUitleg", "adminConfig"],
     },
     "cache_control": {"type": "ephemeral"},
 }
@@ -583,16 +585,32 @@ def _validate_analysis(a):
     """Lichte veiligheidscheck voor het opslaan - de tool-schema hierboven stuurt Claude al
     de goede kant op, maar garandeert niet 100% dat elk veld het juiste type heeft. Een fout
     hier triggert een retry in analyze() i.p.v. een kapotte docx of frontend-crash later."""
-    for field in ("mcId", "title", "relevantieUitleg"):
+    for field in ("mcId", "title", "relevantieUitleg", "omschrijvingIntro",
+                  "impactOrganisaties", "impactTechnisch", "impactFunctioneel"):
         if not a.get(field):
             raise ValueError(f"Verplicht veld ontbreekt of is leeg: {field}")
+    if not a.get("planning"):
+        raise ValueError("Verplicht veld ontbreekt of is leeg: planning")
     score = a.get("relevantieSCore")
     if not isinstance(score, int) or not (1 <= score <= 5):
         raise ValueError(f"relevantieSCore ongeldig: {score!r}")
     if "links" in a and a["links"] is not None and not isinstance(a["links"], list):
         raise ValueError("links moet een lijst zijn")
-    if "adminConfig" in a and a["adminConfig"] is not None and not isinstance(a["adminConfig"], dict):
+    ac = a.get("adminConfig")
+    if ac is not None and not isinstance(ac, dict):
         raise ValueError("adminConfig moet een object zijn")
+    if isinstance(ac, dict):
+        if not ac.get("bron"):
+            raise ValueError("adminConfig.bron ontbreekt of is leeg")
+        if not ac.get("toelichting"):
+            raise ValueError("adminConfig.toelichting ontbreekt of is leeg")
+        if ac.get("mogelijk") is True:
+            # Bij mogelijk:true moet de locatie/stappen ECHT ingevuld zijn - alleen bij
+            # mogelijk:false mogen die conform de system prompt leeg ([]/"") blijven.
+            if not ac.get("locatie"):
+                raise ValueError("adminConfig.locatie ontbreekt of is leeg terwijl mogelijk:true")
+            if not ac.get("stappen"):
+                raise ValueError("adminConfig.stappen ontbreekt of is leeg terwijl mogelijk:true")
     if "omschrijvingBullets" in a and a["omschrijvingBullets"] is not None and not isinstance(a["omschrijvingBullets"], list):
         raise ValueError("omschrijvingBullets moet een lijst zijn")
     if "planning" in a and a["planning"] is not None and not isinstance(a["planning"], list):
