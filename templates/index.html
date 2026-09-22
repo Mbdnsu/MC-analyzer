@@ -6,7 +6,15 @@
 <title>MC Analyzer</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--dark:#0f1e2e;--dark2:#1a2f44;--accent:#0078d4;--accent2:#005a9e;--green:#107c10;--bg:#f0f4f8;--surface:#fff;--text:#1a2535;--muted:#5a6a7a;--border:#dde3eb;--row-hover:#f5f8fc;}
+:root{
+  --dark:#0f1e2e;--dark2:#1a2f44;
+  --accent:#8b1e3f;--accent2:#6b1730;
+  --green:#107c10;--bg:#f0f4f8;--surface:#fff;--text:#1a2535;--muted:#5a6a7a;--border:#dde3eb;--row-hover:#f5f8fc;
+}
+[data-theme="dark"]{
+  --bg:#0b1520;--surface:#111f2e;--text:#e4ebf2;--muted:#8ba0b5;--border:#22344a;--row-hover:#17293b;
+  --accent:#58a6ff;--accent2:#7cb8ff;
+}
 body{font-family:'Segoe UI',-apple-system,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
 .topbar{background:var(--dark);height:52px;display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0;border-bottom:2px solid var(--accent)}
 .tb-logo{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff}
@@ -21,7 +29,11 @@ body{font-family:'Segoe UI',-apple-system,sans-serif;background:var(--bg);color:
 .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}.btn-ghost:hover:not(:disabled){background:var(--row-hover);color:var(--text)}
 .filter-group{display:flex;align-items:center;gap:6px;margin-left:auto}
 .filter-label{font-size:12px;color:var(--muted);font-weight:500}
-select,input[type=text]{padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;color:var(--text);background:#fff;outline:none}
+select,input[type=text]{padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;color:var(--text);background:var(--surface);outline:none}
+.tabs-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:8px;flex-shrink:0}
+.tab-btn{padding:7px 16px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.tab-btn:hover{background:var(--row-hover)}
+.tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 .split{flex:1;display:flex;overflow:hidden}
 .table-pane{display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--border)}
 .table-pane.full{width:100%}.table-pane.half{width:48%}
@@ -34,21 +46,26 @@ table{width:100%;border-collapse:collapse}
 thead{position:sticky;top:0;background:var(--surface);z-index:2}
 thead th{padding:9px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);border-bottom:2px solid var(--border);white-space:nowrap}
 tbody tr{cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s}
-tbody tr:hover{background:var(--row-hover)}tbody tr.selected{background:#eff6ff;border-left:3px solid var(--accent)}
-tbody tr.is-new-item{background:#fffbeb}
+tbody tr:hover{background:var(--row-hover)}
+tbody tr.selected{background:color-mix(in srgb, var(--accent) 10%, var(--surface));border-left:3px solid var(--accent)}
+tbody tr.is-new-item{background:color-mix(in srgb, #f5c518 12%, var(--surface))}
 td{padding:10px 14px;font-size:13px;vertical-align:middle}
 .td-id{font-family:Consolas,monospace;font-size:12px;color:var(--muted);white-space:nowrap}
 .td-title{font-weight:500;line-height:1.4;max-width:280px}
 .td-svc{font-size:12px;color:var(--muted)}.td-date{font-size:12px;color:var(--muted);white-space:nowrap}
 .badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap}
-.badge-new{background:#dff6dd;color:#107c10}.badge-done{background:#f0f4ff;color:#0078d4}
+.badge-new{background:#dff6dd;color:#107c10}
+.badge-done{background:color-mix(in srgb, var(--accent) 16%, white);color:var(--accent)}
+[data-theme="dark"] .badge-done{background:color-mix(in srgb, var(--accent) 22%, black);color:var(--accent)}
 .badge-proc{background:#fff4ce;color:#835b00}.badge-nieuw-tag{background:#fef3c7;color:#92400e;margin-left:4px}.badge-openstaand{background:#f3f4f6;color:#6b7280}
+.badge-major{background:#fee2e2;color:#b91c1c;margin-left:4px}
+.badge-cat-plan{background:#fff4ce;color:#835b00}.badge-cat-inform{background:#e0f2fe;color:#075985}.badge-cat-roadmap{background:#ede9fe;color:#5b21b6}
 .cb{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
 .detail-pane{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .detail-header{background:var(--surface);padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .detail-title{font-size:14px;font-weight:600}.detail-actions{display:flex;gap:8px}
 .detail-scroll{flex:1;overflow-y:auto;padding:20px}
-.preview-card{background:#fff;border-radius:8px;border:1px solid var(--border);padding:24px 28px;max-width:700px;box-shadow:0 1px 4px rgba(0,0,0,0.04)}
+.preview-card{background:var(--surface);border-radius:8px;border:1px solid var(--border);padding:24px 28px;max-width:700px;box-shadow:0 1px 4px rgba(0,0,0,0.04)}
 .p-main-title{font-size:14px;font-weight:700;padding-bottom:12px;margin-bottom:16px;border-bottom:2px solid var(--accent)}
 .p-section{margin-bottom:14px}.p-lbl{font-size:12px;font-weight:700;margin-bottom:3px}
 .p-val{font-size:13px;line-height:1.65}.p-val a{color:var(--accent);text-decoration:none}
@@ -56,22 +73,22 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
 .p-divider{border:none;border-top:1px solid var(--border);margin:16px 0}
 .no-learn-note{font-size:12px;color:var(--muted);font-style:italic;margin-bottom:8px}
 .link-row{margin-bottom:10px}.link-row strong{font-size:13px;display:block;margin-bottom:2px}
-.relevantie-bar{display:flex;align-items:center;gap:10px;background:#f8fafc;border-radius:8px;padding:10px 14px;margin-bottom:16px}
-.one-liner-box{background:#f0f4ff;border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin-bottom:16px}
+.relevantie-bar{display:flex;align-items:center;gap:10px;background:var(--row-hover);border-radius:8px;padding:10px 14px;margin-bottom:16px}
+.one-liner-box{background:color-mix(in srgb, var(--accent) 8%, var(--surface));border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin-bottom:16px}
 .empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
 .empty-icon{width:60px;height:60px;background:var(--border);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px}
-.empty-t{font-size:15px;font-weight:500;color:var(--muted)}.empty-s{font-size:13px;color:#cbd5e1;text-align:center;max-width:260px;line-height:1.5}
+.empty-t{font-size:15px;font-weight:500;color:var(--muted)}.empty-s{font-size:13px;color:var(--muted);opacity:.7;text-align:center;max-width:260px;line-height:1.5}
 .progress-bar-wrap{background:rgba(255,255,255,0.2);border-radius:4px;height:6px;overflow:hidden;margin-top:6px}
 .progress-bar-fill{height:100%;background:#fff;border-radius:4px;transition:width 0.3s}
 .spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,0.35);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
 .new-banner{background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:10px 16px;margin:12px 16px;font-size:13px;color:#92400e;display:none;align-items:center;gap:8px}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;display:flex;align-items:center;justify-content:center}
-.modal{background:#fff;border-radius:12px;padding:32px 36px;width:500px;box-shadow:0 8px 40px rgba(0,0,0,0.18)}
+.modal{background:var(--surface);border-radius:12px;padding:32px 36px;width:500px;box-shadow:0 8px 40px rgba(0,0,0,0.18)}
 .modal-title{font-size:17px;font-weight:700;margin-bottom:20px}.form-row{margin-bottom:16px}
 .form-row label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:5px}
-.form-row input,.form-row select{width:100%;padding:8px 11px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;outline:none;background:#fff}
-.form-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,120,212,0.1)}
+.form-row input,.form-row select{width:100%;padding:8px 11px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;outline:none;background:var(--surface);color:var(--text)}
+.form-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)}
 .form-row input[type=password]{font-family:Consolas,monospace;letter-spacing:1px}
 .modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
 .hint{font-size:11px;color:var(--muted);margin-top:4px}
@@ -86,8 +103,13 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
   <div class="tb-sep">|</div>
   <div class="tb-sub">Microsoft 365 Message Center Analyse Tool</div>
   <div class="tb-right">
+    <button class="btn btn-ghost" onclick="toggleTheme()" id="themeBtn" style="color:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.2);padding:5px 12px;font-size:12px">&#9789; Thema</button>
     <button class="btn btn-ghost" onclick="openSettings()" style="color:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.2);padding:5px 12px;font-size:12px">&#9881; Instellingen</button>
   </div>
+</div>
+<div class="tabs-bar">
+  <button class="tab-btn active" id="tabMcBtn" onclick="switchTab('mc')">Message Center <span id="tabMcCount">(0)</span></button>
+  <button class="tab-btn" id="tabRoadmapBtn" onclick="switchTab('roadmap')">Roadmap <span id="tabRoadmapCount">(0)</span></button>
 </div>
 <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
   <div class="toolbar">
@@ -100,12 +122,11 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
       <button class="btn btn-ghost" onclick="resetAnalysis()" id="resetBtn" style="display:none;color:#c50f1f;border-color:#fecaca">&#9632; Stop</button>
     </div>
     <div style="display:flex;align-items:center;gap:6px;margin-right:10px">
-      <input type="text" id="searchInput" placeholder="Zoek op MC-nummer of titel..." oninput="renderTable()" style="width:240px">
+      <input type="text" id="searchInput" placeholder="Zoek op ID of titel..." oninput="renderTable()" style="width:240px">
     </div>
     <div class="filter-group">
       <span class="filter-label">Filter:</span>
       <select id="statusFilter" onchange="renderTable()">
-        <option value="all">Alle items</option>
         <option value="all" selected>Alle items</option>
         <option value="isNew">Alleen nieuw</option>
         <option value="new">Openstaand</option>
@@ -144,12 +165,12 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
         <div class="empty" id="tableEmpty">
           <div class="empty-icon">&#128230;</div>
           <div class="empty-t">Nog geen items geladen</div>
-          <div class="empty-s">Klik op "Items ophalen" om recente Message Center items te laden</div>
+          <div class="empty-s">Klik op "Items ophalen" om recente Message Center en Roadmap items te laden</div>
         </div>
         <table id="itemTable" style="display:none">
           <thead><tr>
             <th style="width:32px"><input type="checkbox" class="cb" id="selectAll" onchange="toggleSelectAll(this)"></th>
-            <th>Message ID</th><th>Titel</th><th>Service</th><th>Bijgewerkt</th><th>Score</th><th>Status</th>
+            <th>ID</th><th>Titel</th><th>Service</th><th>Bijgewerkt</th><th>Score</th><th>Status</th>
           </tr></thead>
           <tbody id="itemBody"></tbody>
         </table>
@@ -173,8 +194,11 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
   <div class="modal">
     <div class="modal-title">&#9881; Instellingen</div>
     <div class="form-row"><label>Anthropic API Key</label><input type="password" id="settingsApiKey" placeholder="sk-ant-api03-..."><div class="hint">Wordt opgeslagen in je browser.</div></div>
-    <div class="form-row"><label>Aantal items ophalen</label>
-      <select id="settingsCount"><option value="25">Laatste 25</option><option value="50" selected>Laatste 50</option><option value="100">Laatste 100</option><option value="200">Laatste 200</option></select></div>
+    <div class="form-row"><label>Aantal Message Center items ophalen</label>
+      <select id="settingsCount"><option value="25">Laatste 25</option><option value="50">Laatste 50</option><option value="100">Laatste 100</option><option value="200" selected>Laatste 200</option><option value="300">Laatste 300</option><option value="500">Laatste 500</option></select></div>
+    <div class="form-row"><label>Aantal Roadmap items ophalen</label>
+      <select id="settingsRoadmapCount"><option value="25">Laatste 25</option><option value="50">Laatste 50</option><option value="100" selected>Laatste 100</option><option value="150">Laatste 150</option><option value="200">Laatste 200</option></select>
+      <div class="hint">Roadmap-items komen uit een venster van circa 200 recente items (MC + Roadmap gemengd) dat mc.merill.net dagelijks ververst. Bij minder dan gevraagd krijg je gewoon minder terug.</div></div>
     <div class="form-row"><label>Teams Webhook URL (optioneel)</label>
       <input type="text" id="settingsWebhook" placeholder="https://...webhook.office.com/...">
       <div class="hint">Ontvang een Teams-bericht na elke analyse.</div></div>
@@ -183,27 +207,60 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
 </div>
 <div class="toast" id="toast"></div>
 <script>
-let allItems=[], selectedId=null, pollTimer=null;
+let state={activeTab:'mc', mc:[], roadmap:[]};
+let selectedId=null, pollTimer=null;
+
+function activeItems(){ return state[state.activeTab]; }
+function allTrackedItems(){ return state.mc.concat(state.roadmap); }
+
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  try{ localStorage.setItem('mc_theme', t); }catch(e){}
+}
+function toggleTheme(){
+  const cur = document.documentElement.getAttribute('data-theme') || 'light';
+  applyTheme(cur === 'dark' ? 'light' : 'dark');
+}
+(function initTheme(){
+  let saved = 'light';
+  try{ saved = localStorage.getItem('mc_theme') || 'light'; }catch(e){}
+  applyTheme(saved);
+})();
 
 window.addEventListener('load', async () => {
   const analyses = await fetch('/api/analyses').then(r=>r.json()).catch(()=>({analyses:{}}));
   syncAnalysesToItems(analyses.analyses||{});
 });
 
-function syncAnalysesToItems(state) {
-  for(const item of allItems) {
-    if(state[item.id]) {
+function syncAnalysesToItems(dbState) {
+  for(const item of allTrackedItems()) {
+    if(dbState[item.id]) {
       item.status='done';
-      item.relevantieSCore=state[item.id].analysis?.relevantieSCore||null;
-      item.analyzedTitle=state[item.id].analysis?.title||null;
+      item.relevantieSCore=dbState[item.id].analysis?.relevantieSCore||null;
+      item.analyzedTitle=dbState[item.id].analysis?.title||null;
     }
   }
-  renderTable(); updateStats();
+  renderTable(); updateStats(); updateTabCounts();
+}
+
+function switchTab(tab){
+  state.activeTab = tab;
+  document.getElementById('tabMcBtn').classList.toggle('active', tab==='mc');
+  document.getElementById('tabRoadmapBtn').classList.toggle('active', tab==='roadmap');
+  document.getElementById('searchInput').value='';
+  closeDetail();
+  populateServiceFilter(); renderTable(); updateStats();
+}
+
+function updateTabCounts(){
+  document.getElementById('tabMcCount').textContent = '('+state.mc.length+')';
+  document.getElementById('tabRoadmapCount').textContent = '('+state.roadmap.length+')';
 }
 
 function openSettings() {
   document.getElementById('settingsApiKey').value=localStorage.getItem('mc_api_key')||'';
-  document.getElementById('settingsCount').value=localStorage.getItem('mc_count')||'50';
+  document.getElementById('settingsCount').value=localStorage.getItem('mc_count')||'200';
+  document.getElementById('settingsRoadmapCount').value=localStorage.getItem('mc_roadmap_count')||'100';
   document.getElementById('settingsWebhook').value=localStorage.getItem('mc_webhook')||'';
   document.getElementById('settingsModal').style.display='flex';
 }
@@ -211,9 +268,11 @@ function closeSettings(){document.getElementById('settingsModal').style.display=
 function saveSettings(){
   const k=document.getElementById('settingsApiKey').value.trim();
   const c=document.getElementById('settingsCount').value;
+  const rc=document.getElementById('settingsRoadmapCount').value;
   const w=document.getElementById('settingsWebhook').value.trim();
   if(k)localStorage.setItem('mc_api_key',k);
   localStorage.setItem('mc_count',c);
+  localStorage.setItem('mc_roadmap_count',rc);
   if(w)localStorage.setItem('mc_webhook',w);
   closeSettings(); toast('Instellingen opgeslagen');
 }
@@ -222,11 +281,19 @@ async function fetchItems(){
   const btn=document.getElementById('fetchBtn');
   btn.disabled=true; btn.innerHTML='<div class="spinner"></div>&nbsp;Ophalen...';
   try{
-    const count=localStorage.getItem('mc_count')||50;
-    const data=await fetch('/api/items?count='+count).then(r=>r.json());
-    if(!data.ok) throw new Error(data.error);
-    allItems=data.items;
-    const newItems=data.items.filter(i=>i.isNew);
+    const mcCount=localStorage.getItem('mc_count')||200;
+    const rmCount=localStorage.getItem('mc_roadmap_count')||100;
+    const [mcData, rmData] = await Promise.all([
+      fetch('/api/items?type=mc&count='+mcCount).then(r=>r.json()),
+      fetch('/api/items?type=roadmap&count='+rmCount).then(r=>r.json())
+    ]);
+    if(!mcData.ok) throw new Error(mcData.error);
+    if(!rmData.ok) throw new Error(rmData.error);
+    state.mc = mcData.items;
+    state.roadmap = rmData.items;
+    updateTabCounts();
+    const newCount = (mcData.newCount||0) + (rmData.newCount||0);
+    const newItems = allTrackedItems().filter(i=>i.isNew);
     if(newItems.length>0){
       document.getElementById('newBannerText').textContent=newItems.length+' nieuwe items sinds je laatste bezoek';
       document.getElementById('newBanner').style.display='flex';
@@ -236,22 +303,29 @@ async function fetchItems(){
     populateServiceFilter(); renderTable(); updateStats();
     document.getElementById('analyzeAllBtn').disabled=false;
     document.getElementById('analyzeUnanalyzedBtn').disabled=false;
-    toast(allItems.length+' items geladen'+(data.newCount>0?', '+data.newCount+' nieuw':''));
+    toast((state.mc.length+state.roadmap.length)+' items geladen'+(newCount>0?', '+newCount+' nieuw':''));
   }catch(e){toast('Fout: '+e.message,true);}
   finally{btn.disabled=false; btn.innerHTML='&#8635; Items ophalen';}
 }
 
 function populateServiceFilter(){
   const sel=document.getElementById('serviceFilter');
-  const svcs=[...new Set(allItems.map(i=>i.service).filter(Boolean))].sort();
+  const svcs=[...new Set(activeItems().map(i=>i.service).filter(Boolean))].sort();
   sel.innerHTML='<option value="all">Alle services</option>';
   svcs.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o);});
 }
 
 function scoreStars(score){
-  if(!score) return '<span style="color:#ccc;font-size:11px">-</span>';
+  if(!score) return '<span style="color:var(--muted);opacity:.5;font-size:11px">-</span>';
   const colors=['','#ef4444','#f97316','#eab308','#22c55e','#0078d4'];
   return '<span style="color:'+colors[score]+';font-weight:700;font-size:13px">'+'★'.repeat(score)+'☆'.repeat(5-score)+'</span>';
+}
+
+function categoryBadge(item){
+  if(item.type==='roadmap') return '<span class="badge badge-cat-roadmap">Roadmap</span>';
+  if(item.category==='planForChange') return '<span class="badge badge-cat-plan">Plan for Change</span>';
+  if(item.category==='stayInformed') return '<span class="badge badge-cat-inform">Stay Informed</span>';
+  return '';
 }
 
 function renderTable(){
@@ -260,7 +334,7 @@ function renderTable(){
   const scf=document.getElementById('scoreFilter').value;
   const search=document.getElementById('searchInput').value.trim().toLowerCase();
   const body=document.getElementById('itemBody'); body.innerHTML='';
-  const visible=allItems.filter(i=>{
+  const visible=activeItems().filter(i=>{
     const statusOk=sf==='all'||(sf==='isNew'&&i.isNew&&i.status!=='done')||(sf==='new'&&!i.isNew&&i.status!=='done')||i.status===sf;
     const svcOk=svf==='all'||i.service===svf;
     const scoreOk=scf==='all'||!i.relevantieSCore||i.relevantieSCore>=parseInt(scf);
@@ -268,7 +342,7 @@ function renderTable(){
     const searchOk=!search||i.id.toLowerCase().includes(search)||displayTitle.toLowerCase().includes(search);
     return statusOk&&svcOk&&scoreOk&&searchOk;
   });
-  if(!visible.length){document.getElementById('itemTable').style.display='none';document.getElementById('tableEmpty').style.display='flex';return;}
+  if(!visible.length){document.getElementById('itemTable').style.display='none';document.getElementById('tableEmpty').style.display='flex';updateStats();return;}
   document.getElementById('tableEmpty').style.display='none';document.getElementById('itemTable').style.display='table';
   visible.forEach(item=>{
     const tr=document.createElement('tr');
@@ -279,10 +353,11 @@ function renderTable(){
                 item.isNew?'<span class="badge badge-new">&#9679; Nieuw</span>':
                 '<span class="badge badge-openstaand">&#9675; Openstaand</span>';
     const newTag=item.isNew?'<span class="badge badge-nieuw-tag">Nieuw!</span>':'';
+    const majorTag=item.isMajorChange?'<span class="badge badge-major">Major</span>':'';
     const displayTitle=escH(item.analyzedTitle||item.title);
     tr.innerHTML='<td><input type="checkbox" class="cb item-cb" data-id="'+item.id+'" onchange="updateSelCount()"></td>'+
       '<td class="td-id">'+item.id+'</td>'+
-      '<td class="td-title">'+displayTitle+newTag+'</td>'+
+      '<td class="td-title">'+displayTitle+' '+categoryBadge(item)+newTag+majorTag+'</td>'+
       '<td class="td-svc">'+escH(item.service)+'</td>'+
       '<td class="td-date">'+escH(item.lastUpdated)+'</td>'+
       '<td>'+scoreStars(item.relevantieSCore)+'</td>'+
@@ -302,11 +377,13 @@ function updateSelCount(){
 }
 function getSelectedIds(){return Array.from(document.querySelectorAll('.item-cb:checked')).map(c=>c.dataset.id);}
 function updateStats(){
-  document.getElementById('statTotal').textContent=allItems.length;
-  document.getElementById('statDone').textContent=allItems.filter(i=>i.status==='done').length;
-  document.getElementById('statNew').textContent=allItems.filter(i=>i.isNew&&i.status!=='done').length;
-  document.getElementById('statOpen').textContent=allItems.filter(i=>!i.isNew&&i.status!=='done').length;
-  document.getElementById('dlZipBtn').disabled=!allItems.some(i=>i.status==='done');
+  const list=activeItems();
+  document.getElementById('statTotal').textContent=list.length;
+  document.getElementById('statDone').textContent=list.filter(i=>i.status==='done').length;
+  document.getElementById('statNew').textContent=list.filter(i=>i.isNew&&i.status!=='done').length;
+  document.getElementById('statOpen').textContent=list.filter(i=>!i.isNew&&i.status!=='done').length;
+  document.getElementById('dlZipBtn').disabled=!list.some(i=>i.status==='done');
+  updateTabCounts();
 }
 
 function buildPreviewHtml(a){
@@ -317,7 +394,6 @@ function buildPreviewHtml(a){
   const oneLinerHtml=a.oneLiner?'<div class="one-liner-box"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Samenvatting voor Planner</div><div style="font-size:13px;line-height:1.6">'+escH(a.oneLiner)+'</div><button onclick="copyOneLiner(\''+a.oneLiner.replace(/'/g,"\\'")+'\')" style="margin-top:8px;padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">&#128203; Kopieer</button></div>':'';
   const planHtml=(Array.isArray(a.planning)?a.planning:[a.planning]).join('<br>');
   const bullHtml=a.omschrijvingBullets?.length?'<ul class="p-bullets">'+a.omschrijvingBullets.map(b=>'<li>'+escH(b)+'</li>').join('')+'</ul>':'';
-  const beheerHtml=Array.isArray(a.impactBeheer)?'<ul class="p-bullets">'+a.impactBeheer.map(b=>'<li>'+escH(b)+'</li>').join('')+'</ul>':escH(a.impactBeheer);
   let linksHtml='';
   if(a.geenSpecifiekeLearnPagina) linksHtml+='<p class="no-learn-note">Geen specifieke Microsoft Learn-pagina gevonden. Hieronder de meest relevante officiële bronnen.</p>';
   (a.links||[]).forEach(l=>{linksHtml+='<div class="link-row"><strong>'+escH(l.label)+':</strong>'+(l.url?'<a href="'+l.url+'" target="_blank" style="font-size:13px">'+escH(l.url)+'</a>':'<span style="font-size:13px;color:var(--muted)">Microsoft Message Center</span>')+'</div>';});
@@ -329,7 +405,7 @@ function buildPreviewHtml(a){
     '<div class="p-section"><div class="p-lbl">Link naar Teams taak:</div><div class="p-val">Planner - '+escH(a.plannerTask)+'</div></div>'+
     '<div class="p-section"><div class="p-lbl">Planning:</div><div class="p-val">'+planHtml+'</div></div>'+
     '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Omschrijving wijziging:</div><div class="p-val">'+escH(a.omschrijvingIntro)+'</div>'+bullHtml+(a.omschrijvingSlot?'<div class="p-val" style="margin-top:8px">'+escH(a.omschrijvingSlot)+'</div>':'')+'</div>'+
-    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Impactanalyse:</div><div class="p-val"><strong>Impact voor organisaties:</strong> '+escH(a.impactOrganisaties)+'<br><br><strong>Technische impact:</strong> '+escH(a.impactTechnisch)+'<br><br><strong>Functionele impact:</strong> '+escH(a.impactFunctioneel)+'<br><br><strong>Wijzigingen in beheer of gedrag:</strong>'+beheerHtml+'</div></div>'+
+    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Impactanalyse:</div><div class="p-val"><strong>Impact voor organisaties:</strong> '+escH(a.impactOrganisaties)+'<br><br><strong>Technische impact:</strong> '+escH(a.impactTechnisch)+'<br><br><strong>Functionele impact:</strong> '+escH(a.impactFunctioneel)+'</div></div>'+
     '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Links:</div><div class="p-val">'+linksHtml+'</div></div></div>';
 }
 
@@ -366,14 +442,14 @@ function closeDetail(){
   document.getElementById('detailPane').style.display='none';
 }
 
-async function analyzeSelected(){const ids=getSelectedIds();const items=allItems.filter(i=>ids.includes(i.id));await startAnalysis(items,false);}
+async function analyzeSelected(){const ids=getSelectedIds();const its=activeItems().filter(i=>ids.includes(i.id));await startAnalysis(its,false);}
 async function analyzeAllUnanalyzed(){
-  const items=allItems.filter(i=>i.status!=='done');
-  if(!items.length){toast('Alle items zijn al geanalyseerd');return;}
-  if(!confirm('Weet je zeker dat je alle '+items.length+' ongeanalyseerde items wilt analyseren?')) return;
-  await startAnalysis(items,false);
+  const its=activeItems().filter(i=>i.status!=='done');
+  if(!its.length){toast('Alle items in dit tabblad zijn al geanalyseerd');return;}
+  if(!confirm('Weet je zeker dat je alle '+its.length+' ongeanalyseerde items wilt analyseren?')) return;
+  await startAnalysis(its,false);
 }
-async function analyzeAll(){const items=allItems.filter(i=>i.isNew&&i.status!=='done');if(!items.length){toast('Geen nieuwe items gevonden sinds je laatste bezoek');return;}await startAnalysis(items,false);}
+async function analyzeAll(){const its=activeItems().filter(i=>i.isNew&&i.status!=='done');if(!its.length){toast('Geen nieuwe items gevonden sinds je laatste bezoek');return;}await startAnalysis(its,false);}
 
 async function startAnalysis(items,force){
   const api_key=localStorage.getItem('mc_api_key')||'';
@@ -382,7 +458,7 @@ async function startAnalysis(items,force){
   const resp=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({api_key,items,force,webhook_url})}).then(r=>r.json());
   if(!resp.ok){toast('Fout: '+resp.error,true);return;}
-  items.forEach(i=>{const item=allItems.find(x=>x.id===i.id);if(item)item.status='processing';});
+  items.forEach(i=>{const item=allTrackedItems().find(x=>x.id===i.id);if(item)item.status='processing';});
   renderTable();
   document.getElementById('progressWrap').style.display='block';
   document.getElementById('resetBtn').style.display='flex';
@@ -398,20 +474,21 @@ async function pollProgress(){
       'Analyseren '+p.done+'/'+p.total+': '+p.current:'Klaar - '+p.done+' verwerkt';
     document.getElementById('resetBtn').style.display=p.running?'flex':'none';
     const data=await fetch('/api/analyses').then(r=>r.json());
-    const state=data.analyses||{};
-    for(const item of allItems){
-      if(state[item.id]){
+    const dbState=data.analyses||{};
+    for(const item of allTrackedItems()){
+      if(dbState[item.id]){
         item.status='done';
-        item.relevantieSCore=state[item.id].analysis?.relevantieSCore||null;
-        item.analyzedTitle=state[item.id].analysis?.title||null;
+        item.relevantieSCore=dbState[item.id].analysis?.relevantieSCore||null;
+        item.analyzedTitle=dbState[item.id].analysis?.title||null;
       }
     }
     renderTable(); updateStats();
     if(!p.running){
       clearInterval(pollTimer); pollTimer=null;
       setTimeout(()=>{document.getElementById('progressWrap').style.display='none';},3000);
-      toast('Analyse klaar - '+p.done+' verwerkt');
-      if(selectedId&&state[selectedId]) selectItem(selectedId);
+      const errSuffix=(p.errors&&p.errors.length)?' ('+p.errors.length+' fouten, zie serverlog)':'';
+      toast('Analyse klaar - '+p.done+' verwerkt'+errSuffix, !!(p.errors&&p.errors.length));
+      if(selectedId&&dbState[selectedId]) selectItem(selectedId);
     }
   }catch(e){console.warn('Poll fout:',e);}
 }
@@ -422,14 +499,14 @@ async function resetAnalysis(){
   clearInterval(pollTimer); pollTimer=null;
   document.getElementById('progressWrap').style.display='none';
   document.getElementById('resetBtn').style.display='none';
-  for(const item of allItems){if(item.status==='processing')item.status='new';}
+  for(const item of allTrackedItems()){if(item.status==='processing')item.status='new';}
   renderTable(); updateStats(); toast('Analyse gestopt');
 }
 
 function downloadSingle(){if(!selectedId)return;window.location.href='/api/download/'+selectedId;}
 
 async function downloadSelectedZip(){
-  const ids=getSelectedIds().filter(id=>allItems.find(i=>i.id===id)?.status==='done');
+  const ids=getSelectedIds().filter(id=>activeItems().find(i=>i.id===id)?.status==='done');
   if(!ids.length){toast('Selecteer eerst geanalyseerde items',true);return;}
   toast('ZIP wordt aangemaakt voor '+ids.length+' items...');
   const resp=await fetch('/api/download-zip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
@@ -448,8 +525,8 @@ async function loadImages(mcId){
   try{
     const data=await fetch('/api/images/'+mcId).then(r=>r.json());
     if(!data.images||data.images.length===0){container.innerHTML='';return;}
-    const items=data.images.map(img=>'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">&#128444;</span><a href="'+img.url+'" target="_blank" style="font-size:13px;color:var(--accent);text-decoration:none">'+escH(img.alt||'Afbeelding '+img.index)+' &#8599;</a></div>').join('');
-    container.innerHTML='<div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:8px">Afbeeldingen in dit item ('+data.images.length+')</div>'+items+'</div>';
+    const its=data.images.map(img=>'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">&#128444;</span><a href="'+img.url+'" target="_blank" style="font-size:13px;color:var(--accent);text-decoration:none">'+escH(img.alt||'Afbeelding '+img.index)+' &#8599;</a></div>').join('');
+    container.innerHTML='<div style="background:var(--row-hover);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:8px">Afbeeldingen in dit item ('+data.images.length+')</div>'+its+'</div>';
   }catch(e){if(container)container.innerHTML='';}
 }
 
@@ -461,7 +538,7 @@ function copyOneLiner(text){
 
 function escH(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 let toastTimer;
-function toast(msg,err=false){const el=document.getElementById('toast');el.textContent=msg;el.style.background=err?'#c50f1f':'#0f1e2e';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3500);}
+function toast(msg,err=false){const el=document.getElementById('toast');el.textContent=msg;el.style.background=err?'#c50f1f':'var(--dark)';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3500);}
 </script>
 </body>
 </html>

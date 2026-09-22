@@ -4,3 +4,4 @@ beautifulsoup4
 anthropic
 python-docx
 psycopg2-binary
+apscheduler

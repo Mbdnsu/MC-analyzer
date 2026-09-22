@@ -9,6 +9,8 @@ from docx import Document
 from docx.shared import Pt
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 app = Flask(__name__)
 OUTPUT_DIR = Path("/tmp/mc_output")
@@ -101,32 +103,81 @@ def save_seen(seen):
         print(f"save_seen fout: {e}")
 
 # ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """Je bent een senior Microsoft 365 / Modern Workplace engineer die Message Center items analyseert.
+# "impactBeheer" (Wijzigingen in beheer of gedrag) is bewust verwijderd uit het schema - wordt niet gebruikt.
+SYSTEM_PROMPT = """Je bent een senior Microsoft 365 / Modern Workplace engineer die Message Center en Roadmap items analyseert.
 Schrijf ALTIJD in het Nederlands. Geen em-dash. Geen "ten eerste/tweede". Omschrijving zonder risico/impact.
 Geef ALLEEN pure JSON terug - geen markdown, geen backticks.
 
-{"mcId":"MC1234567","title":"[Platform] Titel [MC1234567]","platform":"platform","roadmapId":"id of null","roadmapUrl":"https://www.microsoft.com/microsoft-365/roadmap","plannerTask":"[Platform] Titel [MC1234567]","planning":["Targeted Release: ...","Algemeen beschikbaar: ..."],"oneLiner":"Max 2 zinnen geschikt als opmerking in Planner. Zakelijk en concreet.","omschrijvingIntro":"tekst","omschrijvingBullets":["punt1","punt2"],"omschrijvingSlot":"tekst of lege string","impactOrganisaties":"laag/gemiddeld/hoog - toelichting","impactTechnisch":"tekst","impactFunctioneel":"tekst","impactBeheer":["actie1","actie2"],"relevantieSCore":3,"relevantieUitleg":"Max 1 zin waarom dit item relevant of minder relevant is.","links":[{"label":"Microsoft Learn - naam","url":"https://..."},{"label":"Microsoft Message Center - MC1234567","url":null}],"geenSpecifiekeLearnPagina":false}
+{"mcId":"MC1234567 of RM123456","title":"[Platform] Titel [ID]","platform":"platform","roadmapId":"id of null","roadmapUrl":"https://www.microsoft.com/microsoft-365/roadmap","plannerTask":"[Platform] Titel [ID]","planning":["Targeted Release: ...","Algemeen beschikbaar: ..."],"oneLiner":"Max 2 zinnen geschikt als opmerking in Planner. Zakelijk en concreet.","omschrijvingIntro":"tekst","omschrijvingBullets":["punt1","punt2"],"omschrijvingSlot":"tekst of lege string","impactOrganisaties":"laag/gemiddeld/hoog - toelichting","impactTechnisch":"tekst","impactFunctioneel":"tekst","relevantieSCore":3,"relevantieUitleg":"Max 1 zin waarom dit item relevant of minder relevant is.","links":[{"label":"Microsoft Learn - naam","url":"https://..."},{"label":"Microsoft Message Center - MC1234567","url":null}],"geenSpecifiekeLearnPagina":false}
 
 relevantieSCore: 1=nauwelijks relevant, 2=beperkt, 3=gemiddeld, 4=relevant, 5=zeer relevant/actie vereist"""
 
 progress = {"total": 0, "done": 0, "current": "", "running": False, "errors": [], "new_analyzed": []}
 
 # ─── SCRAPING ─────────────────────────────────────────────────────────────────
+# mc.merill.net is een Next.js app. De HTML-tabel op de homepage is een gemixte,
+# gepagineerde snapshot (MC + RM door elkaar, gelimiteerd tot ~200 rijen totaal) en
+# is daarom onbetrouwbaar voor "geef me X MC-items" of "X roadmap-items". De site
+# laadt zelf twee publieke JSON-bestanden die we rechtstreeks gebruiken:
+#  - messages-archive.json  -> volledig archief van ALLEEN Message Center (MC) items
+#  - messages-index.json    -> de meest recente ~200 items, MC + Roadmap gemengd,
+#                              met een "Source" veld ("messageCenter"/"roadmap")
+# Er is geen los "roadmap-archive.json"; roadmap-items zijn daarom beperkt tot wat
+# in die laatste ~200 items zit (doorgaans ruim voldoende voor 100 stuks, maar niet
+# gegarandeerd - als er te weinig zijn krijg je gewoon minder terug, geen foutmelding).
+
+def _format_last_updated(entry):
+    raw = entry.get("LastModifiedDateTime") or entry.get("StartDateTime") or ""
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).strftime("%b %d, %Y")
+    except Exception:
+        return raw[:10]
+
 def fetch_mc_list(count):
-    resp = requests.get("https://mc.merill.net", timeout=15)
+    resp = requests.get("https://mc.merill.net/messages-archive.json", timeout=20)
     resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
+    data = resp.json()
+    data.sort(key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
+
     items = []
-    for row in soup.select("table tr"):
-        cells = row.select("td")
-        if len(cells) < 4: continue
-        mc_id = cells[0].get_text(strip=True)
-        if not mc_id.startswith("MC"): continue
-        items.append({"id": mc_id, "title": cells[1].get_text(strip=True),
-                      "service": cells[2].get_text(strip=True),
-                      "lastUpdated": cells[3].get_text(strip=True),
-                      "url": f"https://mc.merill.net/message/{mc_id}"})
-        if len(items) >= count: break
+    for entry in data:
+        mc_id = entry.get("Id", "")
+        if not mc_id.startswith("MC"):
+            continue
+        items.append({
+            "id": mc_id,
+            "title": entry.get("Title", ""),
+            "service": ", ".join(entry.get("Services") or []),
+            "lastUpdated": _format_last_updated(entry),
+            "url": f"https://mc.merill.net/message/{mc_id}",
+            "category": entry.get("Category", ""),
+            "isMajorChange": bool(entry.get("IsMajorChange", False)),
+            "type": "messageCenter",
+        })
+        if len(items) >= count:
+            break
+    return items
+
+def fetch_roadmap_list(count):
+    resp = requests.get("https://mc.merill.net/messages-index.json", timeout=20)
+    resp.raise_for_status()
+    data = resp.json()
+    roadmap = [x for x in data if x.get("Source") == "roadmap" or str(x.get("Id", "")).startswith("RM")]
+    roadmap.sort(key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
+
+    items = []
+    for entry in roadmap[:count]:
+        rm_id = entry.get("Id", "")
+        items.append({
+            "id": rm_id,
+            "title": entry.get("Title", ""),
+            "service": ", ".join(entry.get("Services") or []),
+            "lastUpdated": _format_last_updated(entry),
+            "url": entry.get("Url") or f"https://mc.merill.net/message/{rm_id}",
+            "category": entry.get("Category", ""),
+            "isMajorChange": bool(entry.get("IsMajorChange", False)),
+            "type": "roadmap",
+        })
     return items
 
 def fetch_item_text(item):
@@ -204,8 +255,6 @@ def build_docx(a, path):
     lp("Impact voor organisaties: ", a.get("impactOrganisaties", ""))
     lp("Technische impact: ", a.get("impactTechnisch", ""))
     lp("Functionele impact: ", a.get("impactFunctioneel", ""))
-    bp("Wijzigingen in beheer of gedrag:")
-    for b in (a.get("impactBeheer") or []): bl(b)
     doc.add_paragraph()
     bp("Links:")
     if a.get("geenSpecifiekeLearnPagina"):
@@ -276,6 +325,44 @@ def run_analysis(api_key, items, force, webhook_url=""):
     progress["running"] = False
     progress["current"] = ""
 
+# ─── GEPLANDE RUN (alleen di/wo/do ochtend) ───────────────────────────────────
+# Draait binnen dezelfde webservice (geen apart Railway cron-type nodig). Vereist
+# ANTHROPIC_API_KEY als env var, want er is niemand die 'm via de UI invult.
+# Let op bij horizontaal schalen (>1 Railway replica): elke replica start zijn
+# eigen scheduler, dus dan draait dit meerdere keren tegelijk. Bij 1 replica (het
+# huidige Procfile/railway.json) is dat geen probleem.
+SCHEDULED_MC_COUNT = int(os.environ.get("SCHEDULED_MC_COUNT", "50"))
+SCHEDULED_INCLUDE_ROADMAP = os.environ.get("SCHEDULED_INCLUDE_ROADMAP", "false").lower() == "true"
+SCHEDULED_ROADMAP_COUNT = int(os.environ.get("SCHEDULED_ROADMAP_COUNT", "25"))
+
+def scheduled_run():
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        print("Geplande analyse overgeslagen: ANTHROPIC_API_KEY ontbreekt")
+        return
+    if progress["running"]:
+        print("Geplande analyse overgeslagen: er loopt al een analyse")
+        return
+    try:
+        items = fetch_mc_list(SCHEDULED_MC_COUNT)
+        if SCHEDULED_INCLUDE_ROADMAP:
+            items += fetch_roadmap_list(SCHEDULED_ROADMAP_COUNT)
+    except Exception as e:
+        print(f"Geplande analyse: ophalen items mislukt: {e}")
+        return
+    webhook_url = os.environ.get("TEAMS_WEBHOOK_URL", "")
+    print(f"Geplande analyse gestart: {len(items)} items")
+    run_analysis(api_key, items, force=False, webhook_url=webhook_url)
+
+scheduler = BackgroundScheduler(timezone="Europe/Amsterdam")
+scheduler.add_job(
+    scheduled_run,
+    CronTrigger(day_of_week="tue,wed,thu", hour=8, minute=0, timezone="Europe/Amsterdam"),
+    id="mc_scheduled_run",
+    replace_existing=True,
+)
+scheduler.start()
+
 # ─── ROUTES ───────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
@@ -284,8 +371,9 @@ def index():
 @app.route("/api/items")
 def get_items():
     count = int(request.args.get("count", 50))
+    item_type = request.args.get("type", "mc")
     try:
-        items = fetch_mc_list(count)
+        items = fetch_roadmap_list(count) if item_type == "roadmap" else fetch_mc_list(count)
         state = load_state()
         seen = load_seen()
         new_ids = []
@@ -375,7 +463,8 @@ def get_images(mc_id):
 def settings():
     if request.method == "POST": return jsonify({"ok": True})
     return jsonify({"api_key": os.environ.get("ANTHROPIC_API_KEY", ""),
-                    "count": "50",
+                    "count": "200",
+                    "roadmap_count": "100",
                     "webhook_url": os.environ.get("TEAMS_WEBHOOK_URL", "")})
 
 if __name__ == "__main__":
