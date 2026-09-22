@@ -8,7 +8,7 @@ import anthropic
 from docx import Document
 from docx.shared import Pt
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, execute_values
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -91,11 +91,14 @@ def load_seen():
         return set()
 
 def save_seen(seen):
+    if not seen: return
     try:
         conn = get_db()
         cur = conn.cursor()
-        for mc_id in seen:
-            cur.execute('INSERT INTO seen_items (mc_id) VALUES (%s) ON CONFLICT DO NOTHING', (mc_id,))
+        # Eén batch-insert i.p.v. een losse INSERT per item (was de grootste bottleneck
+        # bij "Items ophalen": 200-300 losse round trips naar Postgres per klik).
+        execute_values(cur, 'INSERT INTO seen_items (mc_id) VALUES %s ON CONFLICT DO NOTHING',
+                       [(mc_id,) for mc_id in seen])
         conn.commit()
         cur.close()
         conn.close()
@@ -133,11 +136,24 @@ def _format_last_updated(entry):
     except Exception:
         return raw[:10]
 
+# mc.merill.net ververst deze bestanden zelf maar ~1x per dag. Zonder cache haalt elke
+# klik op "Items ophalen" het volledige archief opnieuw op (kan een paar MB zijn) -
+# met deze TTL-cache is een herhaalde klik binnen 5 minuten vrijwel instant.
+_SOURCE_CACHE = {"archive": None, "archive_ts": 0, "index": None, "index_ts": 0}
+_CACHE_TTL_SECONDS = 300
+
+def _get_json_cached(url, cache_key):
+    now = time.time()
+    if _SOURCE_CACHE[cache_key] is None or (now - _SOURCE_CACHE[cache_key + "_ts"]) > _CACHE_TTL_SECONDS:
+        resp = requests.get(url, timeout=20)
+        resp.raise_for_status()
+        _SOURCE_CACHE[cache_key] = resp.json()
+        _SOURCE_CACHE[cache_key + "_ts"] = now
+    return _SOURCE_CACHE[cache_key]
+
 def fetch_mc_list(count):
-    resp = requests.get("https://mc.merill.net/messages-archive.json", timeout=20)
-    resp.raise_for_status()
-    data = resp.json()
-    data.sort(key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
+    data = _get_json_cached("https://mc.merill.net/messages-archive.json", "archive")
+    data = sorted(data, key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
 
     items = []
     for entry in data:
@@ -159,11 +175,9 @@ def fetch_mc_list(count):
     return items
 
 def fetch_roadmap_list(count):
-    resp = requests.get("https://mc.merill.net/messages-index.json", timeout=20)
-    resp.raise_for_status()
-    data = resp.json()
+    data = _get_json_cached("https://mc.merill.net/messages-index.json", "index")
     roadmap = [x for x in data if x.get("Source") == "roadmap" or str(x.get("Id", "")).startswith("RM")]
-    roadmap.sort(key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
+    roadmap = sorted(roadmap, key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
 
     items = []
     for entry in roadmap[:count]:
@@ -470,4 +484,6 @@ def settings():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
     print(f"\n MC Analyzer gestart op http://localhost:{port}\n")
-    app.run(debug=False, host="0.0.0.0", port=port)
+    # threaded=True: zonder dit verwerkt de Flask dev-server maar 1 request tegelijk,
+    # waardoor de parallelle MC+Roadmap fetch vanuit de browser alsnog na elkaar liep.
+    app.run(debug=False, host="0.0.0.0", port=port, threaded=True)
