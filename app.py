@@ -248,11 +248,10 @@ Je output wordt afgedwongen via de "return_analysis" tool. Rond je analyse ALTIJ
 
 relevantieSCore: 1=nauwelijks relevant, 2=beperkt, 3=gemiddeld, 4=relevant, 5=zeer relevant/actie vereist
 
-oneLiner - dit is de "Samenvatting voor Planner": een duidelijke, volledige maar makkelijk te begrijpen beschrijving van het item in gewone taal, geschikt om zo hardop voor te lezen of te plakken in een Teams-chat tijdens een overleg met mensen die dit bericht niet gelezen hebben en geen achtergrondkennis hebben. Geen losse structuur/labels/bullets nodig - gewoon een lopende tekst van 3-5 zinnen. Te mager (1 korte zin) is NIET goed genoeg.
-- Focus vooral op WAT ER VERANDERT: leg concreet en in gewone taal uit wat de wijziging inhoudt, voor wie, en hoe het er in de praktijk uitziet. Dit is het belangrijkste deel en mag het meeste ruimte krijgen.
-- Verwerk er natuurlijk doorheen waarom dit de moeite waard is om te weten (praktische relevantie), maar hoeft geen apart kopje te zijn.
-- Actie/planning is ondergeschikt: noem een concrete actie of deadline alleen als die er ECHT is en relevant is om te weten, in 1 bijzin - forceer dit niet als het er niet toe doet.
-- Vermijd vage woorden als "mogelijk" of "kan invloed hebben" - wees concreet op basis van wat je weet, geen jargon of onuitgelegde afkortingen.
+oneLiner - dit is de "Samenvatting voor Planner": een compact, duidelijk en makkelijk te begrijpen uitleg van het item in gewone taal, in EEN doorlopende alinea van ongeveer 40-70 woorden (richtlijn: 3 tot maximaal 5 zinnen, dus niet 1 kale zin maar ook zeker geen lang verhaal). Bedoeld om in een paar seconden te lezen of hardop voor te lezen in een overleg aan mensen die dit bericht niet kennen.
+- Focus vrijwel volledig op WAT ER VERANDERT: leg in gewone taal uit wat de wijziging concreet inhoudt, voor wie, en hoe het er in de praktijk uitziet. Geen jargon of onuitgelegde afkortingen.
+- Actie/planning/relevantie zijn ondergeschikt: noem dat soort dingen alleen terloops in een bijzin als het er echt toe doet, forceer het niet en besteed er geen aparte zin aan.
+- Geen bullets, geen labels, geen kopjes - gewoon 1 vloeiende alinea, en houd 'm echt kort: dit is een korte briefing, geen mini-analyse.
 
 adminConfig - je hebt een web_search tool tot je beschikking, gebruik die actief voor dit onderdeel:
 - Noemt de brontekst zelf al een concrete admin-instelling met locatie? Dan "bron":"vermeld in bericht", geen zoekopdracht nodig.
@@ -543,7 +542,7 @@ ANALYSIS_TOOL = {
             "roadmapUrl": {"type": "string"},
             "plannerTask": {"type": "string"},
             "planning": {"type": "array", "items": {"type": "string"}},
-            "oneLiner": {"type": "string", "description": "Volledige, makkelijk te begrijpen lopende tekst (3-5 zinnen) die vooral uitlegt wat er verandert - geen losse structuur/labels, en NIET slechts 1 korte zin."},
+            "oneLiner": {"type": "string", "description": "Compacte lopende alinea van circa 40-70 woorden (3-5 zinnen) die vooral uitlegt wat er verandert - geen losse structuur/labels, niet 1 kale zin maar ook geen lang verhaal."},
             "omschrijvingIntro": {"type": "string"},
             "omschrijvingBullets": {"type": "array", "items": {"type": "string"}},
             "omschrijvingSlot": {"type": "string"},
