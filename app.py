@@ -191,57 +191,80 @@ BELANGRIJK - geen inline bronvermeldingen: zet NOOIT citation-markup zoals <cite
 # scrapen (vaak alleen ruwe HTML-brokken in "Summary") en de gebruiker wil er expliciet
 # geen zware analyse (geen impact/adminConfig/web_search) en geen docx voor - enkel een
 # korte NL-duiding bovenop de letterlijke brondata van de site zelf.
-ROADMAP_SYSTEM_PROMPT = """Je bent een Microsoft 365 / Modern Workplace engineer. Je krijgt de ruwe data van een Microsoft 365 Roadmap-item (titel, service, status, en de "Summary"-tekst zoals gepubliceerd door Microsoft). Voeg daar een klein stukje Nederlandse duiding aan toe - geen volledige impactanalyse, geen web search, gewoon een snelle praktische toelichting op basis van de gegeven tekst.
+ROADMAP_SYSTEM_PROMPT = """Je bent een Microsoft 365 / Modern Workplace engineer. Je krijgt de ruwe data van een Microsoft 365 Roadmap-item (titel, service, status, en de "Summary"-tekst zoals gepubliceerd door Microsoft). Voeg daar een klein stukje Nederlandse duiding aan toe - geen volledige impactanalyse, gewoon een snelle praktische toelichting op basis van de gegeven tekst.
 
 Schrijf ALTIJD in het Nederlands. Geen em-dash. Geen inline citation-markup of tags zoals <cite>.
 
+Je hebt een web_search tool tot je beschikking (mc.merill.net, learn.microsoft.com, techcommunity.microsoft.com), gebruik die ACTIEF en specifiek om te bepalen of dit roadmap-item hoort bij, vooraf gaat aan, of effect heeft op een bestaand Message Center bericht:
+- Zoek op mc.merill.net op de featurenaam/titel van dit roadmap-item om te checken of er al een bijbehorend MC-bericht is gepubliceerd (roadmap-items krijgen vaak later een los MC-nummer zodra een feature daadwerkelijk uitrolt).
+- Vind je een duidelijke match (zelfde feature, vergelijkbare titel/omschrijving): zet dat MC-nummer in "gerelateerdMcId" en leg in "mcRelatieUitleg" kort uit waarom (bv. "dit roadmap-item is de aankondiging, MC123456 is de uitrol-mededeling").
+- Vind je geen duidelijke match: "gerelateerdMcId":null en "mcRelatieUitleg":"Geen gerelateerd MC-bericht gevonden." Verzin nooit een MC-nummer.
+- Gebruik maximaal 3 zoekopdrachten voor dit onderdeel.
+
 Rond je antwoord ALTIJD af met precies één aanroep van de tool "return_roadmap_analysis":
-- omschrijving: 2-4 zinnen, in gewone taal, wat dit roadmap-item inhoudt - puur gebaseerd op de gegeven Summary/titel, niet verzonnen.
-- waarOpLetten: 1-3 zinnen - waar een M365-beheerder alert op moet zijn (bv. nog geen vaste datum, kan invloed hebben op bestaand beleid, treft specifieke licentie/tenant-instelling), of "Niets specifieks om nu op te letten" als de tekst daar geen aanleiding toe geeft. Verzin geen impact die niet uit de tekst blijkt.
-- mogelijkMcId: als de titel/tekst een gerelateerd Message Center bericht noemt of sterk suggereert (bv. "zie MC123456" of dezelfde featurenaam als een bekend patroon), zet het MC-nummer erin (format "MC123456"), anders null. Raad niet actief een MC-nummer - alleen invullen bij een expliciete match in de tekst."""
+- omschrijving: 2-4 zinnen, in gewone taal, wat dit roadmap-item inhoudt - gebaseerd op de gegeven Summary/titel (en eventuele zoekresultaten), niet verzonnen.
+- waarOpLetten: 1-3 zinnen - waar een M365-beheerder alert op moet zijn (bv. nog geen vaste datum, kan invloed hebben op bestaand beleid, treft specifieke licentie/tenant-instelling), of "Niets specifieks om nu op te letten" als daar geen aanleiding toe is. Verzin geen impact die niet uit de tekst of zoekresultaten blijkt.
+- gerelateerdMcId: het MC-nummer (format "MC123456") als je via web_search een duidelijke match vond, anders null.
+- mcRelatieUitleg: korte toelichting op de MC-relatie zoals hierboven beschreven, altijd invullen (ook als er geen match is)."""
+
+ROADMAP_WEB_SEARCH_TOOL = {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 3,
+    "allowed_domains": ["mc.merill.net", "learn.microsoft.com", "techcommunity.microsoft.com"],
+}
 
 ROADMAP_TOOL = {
     "name": "return_roadmap_analysis",
-    "description": "Retourneer de lichte NL-duiding bij dit roadmap-item.",
+    "description": "Retourneer de lichte NL-duiding bij dit roadmap-item. Dit is altijd de allerlaatste stap - roep 'm pas aan als je klaar bent met eventueel zoeken.",
     "input_schema": {
         "type": "object",
         "properties": {
             "omschrijving": {"type": "string"},
             "waarOpLetten": {"type": "string"},
-            "mogelijkMcId": {"type": ["string", "null"]},
+            "gerelateerdMcId": {"type": ["string", "null"]},
+            "mcRelatieUitleg": {"type": "string"},
         },
-        "required": ["omschrijving", "waarOpLetten"],
+        "required": ["omschrijving", "waarOpLetten", "mcRelatieUitleg"],
     },
 }
 
 def analyze_roadmap(client, item):
-    """Licht, goedkoop pad voor roadmap-items: geen scrape, geen web_search, geen retry-met-
-    validatie-schema zoals analyze() - gewoon 1 kleine tool-call op basis van de al aanwezige
-    Summary-tekst uit messages-index.json. Bij falen: nette fallback i.p.v. de hele run te breken."""
+    """Licht pad voor roadmap-items: geen scrape van een detailpagina en geen volledige
+    impact/adminConfig-analyse zoals analyze() - wel een gerichte web_search om een eventueel
+    gerelateerd MC-bericht te vinden. 2 pogingen (korter dan het MC-pad, want goedkoop/klein).
+    Bij falen: nette fallback i.p.v. de hele run te breken."""
     summary_text = re.sub(r"<[^>]+>", " ", item.get("summary") or "").strip()
     summary_text = re.sub(r"\s+", " ", summary_text)
     text = (f"Roadmap ID: {item['id']}\nTitle: {item['title']}\nService: {item['service']}\n"
             f"Status/categorie: {item.get('category','')}\n\nSummary:\n{summary_text[:4000] or '(geen summary beschikbaar)'}")
     msg = None
-    try:
-        msg = client.messages.create(
-            model="claude-sonnet-5",
-            max_tokens=1024,
-            system=ROADMAP_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": text}],
-            tools=[ROADMAP_TOOL],
-            tool_choice={"type": "tool", "name": "return_roadmap_analysis"},
-            timeout=60.0,
-        )
-        tool_calls = [b for b in msg.content if getattr(b, "type", None) == "tool_use" and b.name == "return_roadmap_analysis"]
-        if not tool_calls:
-            raise ValueError("Claude heeft geen return_roadmap_analysis tool-call teruggegeven")
-        result = dict(tool_calls[-1].input)
-    except Exception as e:
-        print(f"Fout bij lichte roadmap-analyse {item['id']}: {e}")
+    result = None
+    last_err = None
+    for attempt in range(2):
+        try:
+            msg = client.messages.create(
+                model="claude-sonnet-5",
+                max_tokens=1536,
+                system=ROADMAP_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": text}],
+                tools=[ROADMAP_WEB_SEARCH_TOOL, ROADMAP_TOOL],
+                timeout=60.0,
+            )
+            tool_calls = [b for b in msg.content if getattr(b, "type", None) == "tool_use" and b.name == "return_roadmap_analysis"]
+            if not tool_calls:
+                raise ValueError("Claude heeft geen return_roadmap_analysis tool-call teruggegeven")
+            result = dict(tool_calls[-1].input)
+            break
+        except Exception as e:
+            last_err = e
+            if attempt == 0:
+                time.sleep(1)
+    if result is None:
+        print(f"Fout bij lichte roadmap-analyse {item['id']}: {last_err}")
         result = {"omschrijving": summary_text or "Geen samenvatting beschikbaar op mc.merill.net voor dit item.",
                   "waarOpLetten": "Automatische duiding is mislukt - controleer dit item handmatig op mc.merill.net.",
-                  "mogelijkMcId": None}
+                  "gerelateerdMcId": None, "mcRelatieUitleg": "Analyse mislukt - niet gezocht naar een gerelateerd MC-bericht."}
     result.update({
         "mcId": item["id"],
         "title": item["title"],
@@ -259,7 +282,7 @@ def analyze_roadmap(client, item):
             "output_tokens": getattr(usage_obj, "output_tokens", None),
             "cache_read_input_tokens": getattr(usage_obj, "cache_read_input_tokens", None),
             "cache_creation_input_tokens": getattr(usage_obj, "cache_creation_input_tokens", None),
-            "web_search_requests": 0,
+            "web_search_requests": getattr(getattr(usage_obj, "server_tool_use", None), "web_search_requests", 0),
         }
     return result
 

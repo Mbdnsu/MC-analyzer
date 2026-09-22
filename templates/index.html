@@ -492,16 +492,21 @@ function buildPreviewHtml(a){
 
 function buildRoadmapPreviewHtml(a){
   const catHtml=a.category?'<div class="p-section"><div class="p-lbl">Status/categorie:</div><div class="p-val">'+escH(a.category)+'</div></div>':'';
+  const mcRelHtml=a.gerelateerdMcId?
+    '<div class="p-val"><span class="badge badge-cat-inform" style="margin-right:6px">'+escH(a.gerelateerdMcId)+'</span>'+escH(a.mcRelatieUitleg||'')+'</div>':
+    '<div class="p-val" style="color:var(--muted)">'+escH(a.mcRelatieUitleg||'Geen gerelateerd MC-bericht gevonden.')+'</div>';
   return '<div class="preview-card">'+
     '<div class="p-main-title">'+escH(a.title)+' <span class="badge badge-cat-roadmap" style="margin-left:6px">Roadmap</span></div>'+
     '<div class="p-section"><div class="p-lbl">Service:</div><div class="p-val">'+escH(a.service||'')+'</div></div>'+
     catHtml+
     '<div class="p-section"><div class="p-lbl">Roadmap link:</div><div class="p-val"><a href="'+a.roadmapUrl+'" target="_blank">'+escH(a.roadmapUrl)+'</a></div></div>'+
+    '<hr class="p-divider">'+
+    '<div class="p-section"><div class="p-lbl">Letterlijke tekst (bron: mc.merill.net):</div>'+
+    '<div class="p-val" style="font-size:14px;line-height:1.6;background:color-mix(in srgb, var(--accent) 6%, transparent);border-left:3px solid var(--accent);padding:10px 12px;border-radius:4px">'+escH(a.summaryRaw||'(geen summary beschikbaar)')+'</div></div>'+
     '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Wat dit inhoudt:</div><div class="p-val">'+escH(a.omschrijving||'')+'</div></div>'+
     '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Waar op letten:</div><div class="p-val">'+escH(a.waarOpLetten||'')+'</div></div>'+
-    (a.mogelijkMcId?'<hr class="p-divider"><div class="p-section"><div class="p-lbl">Mogelijk gerelateerd MC item:</div><div class="p-val">'+escH(a.mogelijkMcId)+'</div></div>':'')+
-    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Bron (letterlijk van mc.merill.net):</div><div class="p-val" style="font-size:12px;color:var(--muted)">'+escH(a.summaryRaw||'(geen summary beschikbaar)')+'</div></div>'+
-    '<div style="font-size:11px;color:var(--muted);margin-top:10px">Roadmap-items krijgen geen zware analyse en geen downloadbaar document - dit is de letterlijke brondata plus een korte NL-duiding.</div>'+
+    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Gerelateerd MC-bericht:</div>'+mcRelHtml+'</div>'+
+    '<div style="font-size:11px;color:var(--muted);margin-top:10px">Roadmap-items krijgen geen zware impactanalyse en geen downloadbaar document.</div>'+
     '</div>';
 }
 
