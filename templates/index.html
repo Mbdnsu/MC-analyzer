@@ -78,8 +78,11 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
 .link-row{margin-bottom:10px}.link-row strong{font-size:13px;display:block;margin-bottom:2px}
 .relevantie-bar{display:flex;align-items:center;gap:10px;background:var(--row-hover);border-radius:8px;padding:10px 14px;margin-bottom:16px}
 .admin-box{background:var(--row-hover);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:14px 16px;margin-top:14px}
+.admin-box-guess{border-style:dashed;border-left-style:solid}
 .admin-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--accent);margin-bottom:2px}
 .admin-box-note{font-size:11px;color:var(--muted);font-style:italic;margin-bottom:10px}
+.admin-guess-warn{font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;padding:6px 10px;margin-bottom:10px;line-height:1.5}
+[data-theme="dark"] .admin-guess-warn{color:#fcd34d;background:#3a2c0a}
 .admin-steps{padding-left:18px;margin:6px 0 0}.admin-steps li{font-size:13px;line-height:1.7}
 .admin-loc{font-size:13px;font-weight:600;margin-bottom:2px}
 .one-liner-box{background:color-mix(in srgb, var(--accent) 8%, var(--surface));border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin-bottom:16px}
@@ -407,12 +410,23 @@ function buildAdminConfigHtml(ac){
   const stepsHtml=(ac.stappen||[]).map(s=>'<li>'+escH(s)+'</li>').join('');
   const rolesHtml=(ac.rollen&&ac.rollen.length)?'<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Benodigde RBAC-rol</div>'+
     ac.rollen.map(r=>'<span class="badge badge-cat-inform" style="margin-right:4px">'+escH(r)+'</span>').join('')+'</div>':'';
-  return '<div class="admin-box"><div class="admin-box-title">&#9881; Admin configuratie / uitschakelen</div>'+
+  const isGuess=ac.bron==='algemene kennis';
+  const isSearched=ac.bron==='webzoekopdracht';
+  let bronHtml='';
+  if(isGuess){
+    bronHtml='<div class="admin-guess-warn">&#9888; Gebaseerd op algemene kennis, niet expliciet vermeld in dit bericht - verifieer in het beheercentrum voor je dit in een RFC verwerkt</div>';
+  } else if(isSearched){
+    bronHtml='<div style="font-size:11px;color:var(--muted);margin-bottom:6px">&#128269; Gevonden via websearch'+(ac.bronUrl?' - <a href="'+ac.bronUrl+'" target="_blank" style="color:var(--accent)">bron</a>':'')+'</div>';
+  } else if(ac.bron){
+    bronHtml='<div style="font-size:11px;color:var(--muted);margin-bottom:6px">&#10003; Vermeld in het bericht</div>';
+  }
+  return '<div class="admin-box'+(isGuess?' admin-box-guess':'')+'"><div class="admin-box-title">&#9881; Admin configuratie / uitschakelen</div>'+
     '<div class="admin-box-note">Alleen zichtbaar hier, niet in het gedownloade document</div>'+
+    bronHtml+
     (ac.locatie?'<div class="admin-loc">'+escH(ac.locatie)+'</div>':'')+
     (stepsHtml?'<ol class="admin-steps">'+stepsHtml+'</ol>':'')+
     rolesHtml+
-    (ac.toelichting?'<div style="font-size:12px;color:var(--muted);margin-top:8px">'+escH(ac.toelichting)+'</div>':'')+
+    (ac.toelichting&&!isGuess?'<div style="font-size:12px;color:var(--muted);margin-top:8px">'+escH(ac.toelichting)+'</div>':'')+
     '</div>';
 }
 

@@ -113,14 +113,20 @@ SYSTEM_PROMPT = """Je bent een senior Microsoft 365 / Modern Workplace engineer 
 Schrijf ALTIJD in het Nederlands. Geen em-dash. Geen "ten eerste/tweede". Omschrijving zonder risico/impact.
 Geef ALLEEN pure JSON terug - geen markdown, geen backticks.
 
-{"mcId":"MC1234567 of RM123456","title":"[Platform] Titel [ID]","platform":"platform","roadmapId":"id of null","roadmapUrl":"https://www.microsoft.com/microsoft-365/roadmap","plannerTask":"[Platform] Titel [ID]","planning":["Targeted Release: ...","Algemeen beschikbaar: ..."],"oneLiner":"Max 2 zinnen geschikt als opmerking in Planner. Zakelijk en concreet.","omschrijvingIntro":"tekst","omschrijvingBullets":["punt1","punt2"],"omschrijvingSlot":"tekst of lege string","impactOrganisaties":"laag/gemiddeld/hoog - toelichting","impactTechnisch":"tekst","impactFunctioneel":"tekst","relevantieSCore":3,"relevantieUitleg":"Max 1 zin waarom dit item relevant of minder relevant is.","links":[{"label":"Microsoft Learn - naam","url":"https://..."},{"label":"Microsoft Message Center - MC1234567","url":null}],"geenSpecifiekeLearnPagina":false,"adminConfig":{"mogelijk":true,"locatie":"exact beheercentrum + menupad, bv. Teams Admin Center > Meetings > Meeting policies","stappen":["stap 1","stap 2","stap 3"],"rollen":["exacte Entra ID rolnaam, bv. Teams Administrator"],"toelichting":"korte context, bv. wat de instelling doet of wanneer je 'm zou aanpassen"}}
+{"mcId":"MC1234567 of RM123456","title":"[Platform] Titel [ID]","platform":"platform","roadmapId":"id of null","roadmapUrl":"https://www.microsoft.com/microsoft-365/roadmap","plannerTask":"[Platform] Titel [ID]","planning":["Targeted Release: ...","Algemeen beschikbaar: ..."],"oneLiner":"Max 2 zinnen geschikt als opmerking in Planner. Zakelijk en concreet.","omschrijvingIntro":"tekst","omschrijvingBullets":["punt1","punt2"],"omschrijvingSlot":"tekst of lege string","impactOrganisaties":"laag/gemiddeld/hoog - toelichting","impactTechnisch":"tekst","impactFunctioneel":"tekst","relevantieSCore":3,"relevantieUitleg":"Max 1 zin waarom dit item relevant of minder relevant is.","links":[{"label":"Microsoft Learn - naam","url":"https://..."},{"label":"Microsoft Message Center - MC1234567","url":null}],"geenSpecifiekeLearnPagina":false,"adminConfig":{"mogelijk":true,"bron":"vermeld in bericht | webzoekopdracht | algemene kennis","bronUrl":"https://learn.microsoft.com/... van de pagina die dit bevestigt, of null","locatie":"beheercentrum + menupad, bv. Teams Admin Center > Meetings > Meeting policies","stappen":["stap 1","stap 2","stap 3"],"rollen":["exacte Entra ID rolnaam, bv. Teams Administrator"],"toelichting":"korte context, en bij bron=algemene kennis een verificatie-waarschuwing"}}
 
-adminConfig - BELANGRIJK, baseer dit uitsluitend op wat in de brontekst staat, verzin nooit een exact menupad dat niet genoemd wordt:
-- Als de brontekst een concreet admin-toggle/instelling met locatie noemt: "mogelijk":true, "locatie" en "stappen" zo specifiek als de bron toelaat (login-URL van het juiste beheercentrum, menupad, wat je aan/uit zet).
-- Als de bron alleen zegt dat het "admin-configureerbaar" is zonder exacte locatie: "mogelijk":true, "locatie" het meest waarschijnlijke beheercentrum voor dit platform (Teams Admin Center/Entra admin center/Intune/SharePoint admin center/Exchange admin center), "stappen" met de instructie om daar te zoeken op de featurenaam, en vermeld in "toelichting" dat de exacte plek niet in de bron stond.
-- Als de bron expliciet zegt dat er GEEN adminbeheer of opt-out is (automatisch uitgerold, geen controls): "mogelijk":false, "stappen":[], "rollen":[], "toelichting" met de reden.
-- Als de bron niets over adminbeheer vermeldt: "mogelijk":false, "stappen":[], "rollen":[], "toelichting":"Niet vermeld in de brontekst van dit item."
-- "rollen": alleen invullen als "mogelijk":true. Gebruik de EXACTE, officiele Microsoft Entra ID / Microsoft 365 rolnaam die minimaal nodig is om die specifieke instelling te wijzigen (bv. "Teams Administrator", "SharePoint Administrator", "Exchange Administrator", "Intune Administrator", "Security Administrator", "Global Administrator"). Kies de rol met de minste rechten die het werk kan doen (least privilege), noem Global Administrator alleen als er geen preciezere rol bestaat voor die specifieke instelling. Als je het niet zeker weet, laat "rollen" leeg in plaats van te gokken.
+adminConfig - je hebt een web_search tool tot je beschikking, gebruik die actief voor dit onderdeel:
+- Noemt de brontekst zelf al een concrete admin-instelling met locatie? Dan "bron":"vermeld in bericht", geen zoekopdracht nodig.
+- Noemt de brontekst dat NIET (de meerderheid van de items): zoek zelf op Microsoft Learn / Microsoft Tech Community naar de exacte admin-instelling voor deze specifieke feature (zoekterm: featurenaam + "admin" of "policy" of "settings"). Vind je een concrete, actuele pagina die de locatie bevestigt: "bron":"webzoekopdracht", "bronUrl" naar die pagina, en "locatie"/"stappen" gebaseerd op wat die pagina zegt.
+- Levert de zoekopdracht niets bruikbaars op: val terug op "bron":"algemene kennis" met je beste inschatting op basis van platform en type wijziging, "bronUrl":null, en zet in "toelichting" ALTIJD: "Niet gevonden via zoekopdracht of in dit bericht, geschat op basis van algemene kennis - verifieer in het beheercentrum voor je dit in een RFC verwerkt."
+- "mogelijk":false alleen als expliciet blijkt (uit bericht of zoekopdracht) dat er geen adminbeheer/opt-out is, of het type wijziging inherent geen instelling kan hebben (bv. backend-only capaciteitsupdate). "stappen":[], "rollen":[] in dat geval.
+- "rollen": bij "mogelijk":true de EXACTE, officiele Microsoft Entra ID / Microsoft 365 rolnaam die minimaal nodig is (bv. "Teams Administrator", "SharePoint Administrator", "Exchange Administrator", "Intune Administrator", "Security Administrator", "Global Administrator"), least privilege - noem Global Administrator alleen als er geen preciezere rol bestaat. Geen enkele zekerheid, ook niet na zoeken? Laat "rollen" leeg.
+
+Web search: je hebt een web_search tool tot je beschikking (beperkt tot learn.microsoft.com, techcommunity.microsoft.com, support.microsoft.com). Gebruik die niet alleen voor adminConfig, maar voor de hele analyse waar de brontekst te summier of gedateerd is:
+- omschrijvingIntro/omschrijvingBullets: zoek de officiele Microsoft Learn-pagina op als de brontekst kort of vaag is, en verwerk relevante details (hoe het precies werkt, voor wie, uitzonderingen) in de omschrijving.
+- impactTechnisch/impactFunctioneel/impactOrganisaties: check of er inmiddels een actuelere status is dan de brontekst suggereert (bv. een roadmap-item dat volgens de bron nog "in development" staat maar inmiddels "rolling out" is), en gebruik gevonden technische details (vereiste licenties, afhankelijkheden, voorwaarden) om de impact concreter te maken.
+- links: voeg elke bruikbare Microsoft Learn/Tech Community pagina die je vindt toe aan "links", ook als je 'm niet voor adminConfig gebruikt. Zet "geenSpecifiekeLearnPagina" alleen op true als een zoekopdracht ECHT niets relevants oplevert, niet omdat je niet gezocht hebt.
+- Gebruik in totaal maximaal 5 zoekopdrachten per item (adminConfig + de rest samen) om kosten en latency te beperken. Zoek gericht op wat je daadwerkelijk niet zeker weet, niet standaard bij elk veld.
 
 relevantieSCore: 1=nauwelijks relevant, 2=beperkt, 3=gemiddeld, 4=relevant, 5=zeer relevant/actie vereist"""
 
@@ -228,13 +234,32 @@ def fetch_item_images(url):
         return []
 
 # ─── CLAUDE ───────────────────────────────────────────────────────────────────
+# web_search: laat Claude tijdens de analyse zelf op learn.microsoft.com / techcommunity
+# opzoeken wat actueel klopt - voor adminConfig, maar ook om de omschrijving en impact-
+# secties te verrijken/actualiseren i.p.v. alleen op getrainde kennis te vertrouwen.
+# Kost circa $0.01 per zoekopdracht (max_uses=5 per item = bovengrens, meestal minder),
+# dus bij een volledige run van 200+ items reken op een paar dollar extra Anthropic-kosten
+# bovenop de gewone tekstgeneratie - zie https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
+WEB_SEARCH_TOOL = {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+    "allowed_domains": ["learn.microsoft.com", "techcommunity.microsoft.com", "support.microsoft.com"],
+}
+
 def analyze(client, text):
     msg = client.messages.create(
         model="claude-sonnet-4-6", max_tokens=4096,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": text}],
-        timeout=60.0)
-    raw = msg.content[0].text.strip()
+        tools=[WEB_SEARCH_TOOL],
+        timeout=90.0)
+    # Met web_search erbij staat het finale JSON-antwoord niet meer gegarandeerd op
+    # content[0] (daarvoor kunnen server_tool_use/web_search_tool_result blokken staan).
+    text_blocks = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
+    if not text_blocks:
+        raise ValueError("Geen tekstblok in Claude-response (mogelijk alleen tool-use zonder afsluitende JSON)")
+    raw = text_blocks[-1].strip()
     if raw.startswith("```"):
         raw = re.sub(r'^```(?:json)?\n?', '', raw)
         raw = re.sub(r'\n?```$', '', raw)
