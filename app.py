@@ -44,6 +44,21 @@ def init_db():
             cache_creation_input_tokens INTEGER,
             web_search_requests INTEGER
         )''')
+        # Eigen groeiend archief van item-METADATA (titel/datum/url/summary), los van de
+        # analyse zelf - vangt items op zodra mc.merill.net ze uit archive.json/index.json
+        # laat rollen, zodat ze in de tool vindbaar en (indien de brondetailpagina nog
+        # bestaat) analyseerbaar blijven. Wordt bijgewerkt bij elke "Items ophalen".
+        cur.execute('''CREATE TABLE IF NOT EXISTS mc_archive (
+            mc_id TEXT PRIMARY KEY,
+            title TEXT,
+            services TEXT,
+            last_modified TEXT,
+            url TEXT,
+            category TEXT,
+            is_major_change BOOLEAN,
+            item_type TEXT,
+            summary TEXT
+        )''')
         conn.commit()
         cur.close()
         conn.close()
@@ -86,6 +101,68 @@ def save_analysis(mc_id, title, filename, analyzed_at, analysis):
         conn.close()
     except Exception as e:
         print(f"save_analysis fout: {e}")
+
+def _get_db_archive(item_type):
+    """Eigen opgebouwde archief-rijen voor dit type ('messageCenter'/'roadmap'), als aanvulling
+    op wat archive.json/index.json nu live teruggeven - zie mc_archive-tabel hierboven."""
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT * FROM mc_archive WHERE item_type=%s', (item_type,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"_get_db_archive fout: {e}")
+        return []
+
+def _row_to_raw(row):
+    """Zet een mc_archive-DB-rij terug om naar hetzelfde 'raw' formaat als een entry uit
+    archive.json/index.json, zodat er 1 merge-logica kan werken voor alle drie de bronnen."""
+    return {
+        "Id": row["mc_id"],
+        "Title": row["title"] or "",
+        "Services": (row["services"] or "").split(", ") if row["services"] else [],
+        "LastModifiedDateTime": row["last_modified"] or "",
+        "Url": row["url"] or "",
+        "Category": row["category"] or "",
+        "IsMajorChange": bool(row["is_major_change"]),
+        "Summary": row.get("summary") or "",
+    }
+
+def _save_archive_items(raw_entries, item_type):
+    """Upsert alle gezien items (niet alleen de 'count' die teruggaat naar de frontend) naar
+    het eigen archief, zodat toekomstige runs ze nog vinden ook als mc.merill.net ze zelf
+    allang uit archive.json/index.json heeft laten rollen. Draait bij elke 'Items ophalen'."""
+    rows = []
+    for entry in raw_entries:
+        eid = entry.get("Id", "")
+        if not eid:
+            continue
+        rows.append((
+            eid, entry.get("Title", ""), ", ".join(entry.get("Services") or []),
+            entry.get("LastModifiedDateTime") or entry.get("StartDateTime") or "",
+            entry.get("Url") or f"https://mc.merill.net/message/{eid}",
+            entry.get("Category", ""), bool(entry.get("IsMajorChange", False)),
+            item_type, entry.get("Summary", ""),
+        ))
+    if not rows:
+        return
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        execute_values(cur, '''INSERT INTO mc_archive
+            (mc_id, title, services, last_modified, url, category, is_major_change, item_type, summary)
+            VALUES %s ON CONFLICT (mc_id) DO UPDATE SET
+            title=EXCLUDED.title, services=EXCLUDED.services, last_modified=EXCLUDED.last_modified,
+            url=EXCLUDED.url, category=EXCLUDED.category, is_major_change=EXCLUDED.is_major_change,
+            summary=EXCLUDED.summary''', rows)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"_save_archive_items fout: {e}")
 
 def save_usage(mc_id, analyzed_at, usage):
     if not usage: return
@@ -331,11 +408,15 @@ def _get_json_cached(url, cache_key):
 def fetch_mc_list(count):
     archive = _get_json_cached("https://mc.merill.net/messages-archive.json", "archive")
     index = _get_json_cached("https://mc.merill.net/messages-index.json", "index")
+    db_rows = _get_db_archive("messageCenter")
 
-    # Merge op Id: archive geeft historische diepte, index.json is de live/actuele set en
-    # overschrijft dus bewust dezelfde Id (voorkomt dat een gecachete/verouderde archive-
-    # versie een net gepubliceerd of aangepast item verbergt of met foute datum toont).
+    # Merge op Id, in oplopende prioriteit: eigen db-archief (laagste - vangt oude items op
+    # die uit de site-bestanden zijn gerold) < archive.json (historische diepte, maar bleek
+    # in de praktijk niet altijd bijgewerkt) < index.json (de live/actuele set, wint dus bij
+    # eenzelfde Id zodat een net gepubliceerd of aangepast item nooit verouderd getoond wordt).
     merged = {}
+    for row in db_rows:
+        merged[row["mc_id"]] = _row_to_raw(row)
     for entry in archive:
         eid = entry.get("Id", "")
         if eid.startswith("MC"):
@@ -344,6 +425,10 @@ def fetch_mc_list(count):
         eid = entry.get("Id", "")
         if eid.startswith("MC") or entry.get("Source") == "messageCenter":
             merged[eid] = entry
+
+    # Alles wat gezien is (niet alleen de 'count' die teruggaat) wegschrijven naar het eigen
+    # archief - zo blijft ook wat nu buiten de gevraagde 'count' valt vindbaar in latere runs.
+    _save_archive_items(merged.values(), "messageCenter")
 
     data = sorted(merged.values(), key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
 
@@ -357,7 +442,7 @@ def fetch_mc_list(count):
             "title": entry.get("Title", ""),
             "service": ", ".join(entry.get("Services") or []),
             "lastUpdated": _format_last_updated(entry),
-            "url": f"https://mc.merill.net/message/{mc_id}",
+            "url": entry.get("Url") or f"https://mc.merill.net/message/{mc_id}",
             "category": entry.get("Category", ""),
             "isMajorChange": bool(entry.get("IsMajorChange", False)),
             "type": "messageCenter",
@@ -368,8 +453,19 @@ def fetch_mc_list(count):
 
 def fetch_roadmap_list(count):
     data = _get_json_cached("https://mc.merill.net/messages-index.json", "index")
-    roadmap = [x for x in data if x.get("Source") == "roadmap" or str(x.get("Id", "")).startswith("RM")]
-    roadmap = sorted(roadmap, key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
+    roadmap_live = [x for x in data if x.get("Source") == "roadmap" or str(x.get("Id", "")).startswith("RM")]
+    db_rows = _get_db_archive("roadmap")
+
+    # Zelfde merge-aanpak als bij MC: db-archief vangt items op die uit index.json zijn
+    # gerold (dat venster is klein - ~120 items totaal, MC+Roadmap gemengd), live wint bij
+    # eenzelfde Id.
+    merged = {row["mc_id"]: _row_to_raw(row) for row in db_rows}
+    for entry in roadmap_live:
+        merged[entry.get("Id", "")] = entry
+
+    _save_archive_items(merged.values(), "roadmap")
+
+    roadmap = sorted(merged.values(), key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
 
     items = []
     for entry in roadmap[:count]:
