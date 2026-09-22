@@ -293,12 +293,18 @@ progress = {"total": 0, "done": 0, "current": "", "running": False, "errors": []
 # gepagineerde snapshot (MC + RM door elkaar, gelimiteerd tot ~200 rijen totaal) en
 # is daarom onbetrouwbaar voor "geef me X MC-items" of "X roadmap-items". De site
 # laadt zelf twee publieke JSON-bestanden die we rechtstreeks gebruiken:
-#  - messages-archive.json  -> volledig archief van ALLEEN Message Center (MC) items
-#  - messages-index.json    -> de meest recente ~200 items, MC + Roadmap gemengd,
-#                              met een "Source" veld ("messageCenter"/"roadmap")
-# Er is geen los "roadmap-archive.json"; roadmap-items zijn daarom beperkt tot wat
-# in die laatste ~200 items zit (doorgaans ruim voldoende voor 100 stuks, maar niet
-# gegarandeerd - als er te weinig zijn krijg je gewoon minder terug, geen foutmelding).
+#  - messages-archive.json  -> een MC-only snapshot, MAAR blijkt in de praktijk gecapt op
+#                              ~400 entries en wordt kennelijk niet realtime bijgewerkt (op
+#                              22-09-2026 was het nieuwste item daarin van maart 2026 - dus
+#                              maanden achter). Puur bruikbaar als historische aanvulling.
+#  - messages-index.json    -> de ECHT actuele/live set (op 22-09-2026 maar ~120 items
+#                              breed terug tot begin juli 2026 voor MC), MC + Roadmap
+#                              gemengd, met een "Source" veld ("messageCenter"/"roadmap").
+# Voor MC-items combineren we daarom beide bronnen (index.json wint bij een dubbele Id,
+# want dat is de actuele versie) zodat nieuwe items altijd meteen zichtbaar zijn EN je nog
+# verder terug kunt zoeken via de archive-data. Er is geen los "roadmap-archive.json";
+# roadmap-items zijn daarom beperkt tot wat er in messages-index.json zit (schommelt, geen
+# garantie op 100 stuks - als er te weinig zijn krijg je gewoon minder terug, geen foutmelding).
 
 def _format_last_updated(entry):
     raw = entry.get("LastModifiedDateTime") or entry.get("StartDateTime") or ""
@@ -323,8 +329,23 @@ def _get_json_cached(url, cache_key):
     return _SOURCE_CACHE[cache_key]
 
 def fetch_mc_list(count):
-    data = _get_json_cached("https://mc.merill.net/messages-archive.json", "archive")
-    data = sorted(data, key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
+    archive = _get_json_cached("https://mc.merill.net/messages-archive.json", "archive")
+    index = _get_json_cached("https://mc.merill.net/messages-index.json", "index")
+
+    # Merge op Id: archive geeft historische diepte, index.json is de live/actuele set en
+    # overschrijft dus bewust dezelfde Id (voorkomt dat een gecachete/verouderde archive-
+    # versie een net gepubliceerd of aangepast item verbergt of met foute datum toont).
+    merged = {}
+    for entry in archive:
+        eid = entry.get("Id", "")
+        if eid.startswith("MC"):
+            merged[eid] = entry
+    for entry in index:
+        eid = entry.get("Id", "")
+        if eid.startswith("MC") or entry.get("Source") == "messageCenter":
+            merged[eid] = entry
+
+    data = sorted(merged.values(), key=lambda x: x.get("LastModifiedDateTime") or x.get("StartDateTime") or "", reverse=True)
 
     items = []
     for entry in data:
