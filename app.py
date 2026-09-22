@@ -593,6 +593,10 @@ def _validate_analysis(a):
         raise ValueError("links moet een lijst zijn")
     if "adminConfig" in a and a["adminConfig"] is not None and not isinstance(a["adminConfig"], dict):
         raise ValueError("adminConfig moet een object zijn")
+    if "omschrijvingBullets" in a and a["omschrijvingBullets"] is not None and not isinstance(a["omschrijvingBullets"], list):
+        raise ValueError("omschrijvingBullets moet een lijst zijn")
+    if "planning" in a and a["planning"] is not None and not isinstance(a["planning"], list):
+        raise ValueError("planning moet een lijst zijn")
 
 def analyze(client, text):
     """3 pogingen met exponentiele backoff (1s, 2s) bij parse-/validatie-/timeout-fouten,
