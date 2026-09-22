@@ -484,7 +484,7 @@ function buildPreviewHtml(a){
     '<div class="p-main-title">'+escH(a.title)+'</div>'+
     '<div class="p-section"><div class="p-lbl">Platform:</div><div class="p-val">'+escH(a.platform)+'</div></div>'+
     '<div class="p-section"><div class="p-lbl">Link naar Microsoft:</div><div class="p-val">Roadmap ID: '+escH(a.roadmapId||'niet van toepassing')+'<br><a href="'+a.roadmapUrl+'" target="_blank">'+escH(a.roadmapUrl)+'</a></div></div>'+
-    '<div class="p-section"><div class="p-lbl">Link naar Teams taak:</div><div class="p-val">Planner - '+escH(a.plannerTask)+'</div></div>'+
+    '<div class="p-section"><div class="p-lbl">Link naar Teams taak:</div><div class="p-val">Planner - '+escH(a.title||'')+'</div></div>'+
     '<div class="p-section"><div class="p-lbl">Planning:</div><div class="p-val">'+planHtml+'</div></div>'+
     '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Omschrijving wijziging:</div><div class="p-val">'+escH(a.omschrijvingIntro)+'</div>'+bullHtml+(a.omschrijvingSlot?'<div class="p-val" style="margin-top:8px">'+escH(a.omschrijvingSlot)+'</div>':'')+'</div>'+
     '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Impactanalyse:</div><div class="p-val"><strong>Impact voor organisaties:</strong> '+escH(a.impactOrganisaties)+'<br><br><strong>Technische impact:</strong> '+escH(a.impactTechnisch)+'<br><br><strong>Functionele impact:</strong> '+escH(a.impactFunctioneel)+'</div>'+adminHtml+'</div>'+

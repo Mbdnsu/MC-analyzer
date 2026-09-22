@@ -541,7 +541,6 @@ ANALYSIS_TOOL = {
             "platform": {"type": "string"},
             "roadmapId": {"type": ["string", "null"]},
             "roadmapUrl": {"type": "string"},
-            "plannerTask": {"type": "string"},
             "planning": {"type": "array", "items": {"type": "string"}},
             "oneLiner": {"type": "string", "description": "Compacte lopende alinea van circa 40-70 woorden (3-5 zinnen) die vooral uitlegt wat er verandert - geen losse structuur/labels, niet 1 kale zin maar ook geen lang verhaal."},
             "omschrijvingIntro": {"type": "string"},
@@ -575,7 +574,7 @@ ANALYSIS_TOOL = {
                 "required": ["mogelijk", "bron", "locatie", "stappen", "rollen", "toelichting"],
             },
         },
-        "required": ["mcId", "title", "platform", "planning", "omschrijvingIntro", "impactOrganisaties",
+        "required": ["mcId", "title", "platform", "planning", "oneLiner", "omschrijvingIntro", "impactOrganisaties",
                      "impactTechnisch", "impactFunctioneel", "relevantieSCore", "relevantieUitleg", "adminConfig"],
     },
     "cache_control": {"type": "ephemeral"},
@@ -585,7 +584,7 @@ def _validate_analysis(a):
     """Lichte veiligheidscheck voor het opslaan - de tool-schema hierboven stuurt Claude al
     de goede kant op, maar garandeert niet 100% dat elk veld het juiste type heeft. Een fout
     hier triggert een retry in analyze() i.p.v. een kapotte docx of frontend-crash later."""
-    for field in ("mcId", "title", "relevantieUitleg", "omschrijvingIntro",
+    for field in ("mcId", "title", "platform", "relevantieUitleg", "oneLiner", "omschrijvingIntro",
                   "impactOrganisaties", "impactTechnisch", "impactFunctioneel"):
         if not a.get(field):
             raise ValueError(f"Verplicht veld ontbreekt of is leeg: {field}")
@@ -674,7 +673,7 @@ def build_docx(a, path):
     np(f"Roadmap ID: {a.get('roadmapId') or 'niet van toepassing'}")
     if a.get("roadmapUrl"): np(a["roadmapUrl"])
     doc.add_paragraph()
-    bp("Link naar Teams taak:"); np(f"Planner - {a.get('plannerTask', '')}")
+    bp("Link naar Teams taak:"); np(f"Planner - {a.get('title', '')}")
     doc.add_paragraph()
     bp("Planning:")
     for l in (a.get("planning") or []): np(l)
