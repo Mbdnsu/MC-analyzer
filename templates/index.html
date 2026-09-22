@@ -77,6 +77,11 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
 .no-learn-note{font-size:12px;color:var(--muted);font-style:italic;margin-bottom:8px}
 .link-row{margin-bottom:10px}.link-row strong{font-size:13px;display:block;margin-bottom:2px}
 .relevantie-bar{display:flex;align-items:center;gap:10px;background:var(--row-hover);border-radius:8px;padding:10px 14px;margin-bottom:16px}
+.admin-box{background:var(--row-hover);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:14px 16px;margin-top:14px}
+.admin-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--accent);margin-bottom:2px}
+.admin-box-note{font-size:11px;color:var(--muted);font-style:italic;margin-bottom:10px}
+.admin-steps{padding-left:18px;margin:6px 0 0}.admin-steps li{font-size:13px;line-height:1.7}
+.admin-loc{font-size:13px;font-weight:600;margin-bottom:2px}
 .one-liner-box{background:color-mix(in srgb, var(--accent) 8%, var(--surface));border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin-bottom:16px}
 .empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
 .empty-icon{width:60px;height:60px;background:var(--border);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px}
@@ -184,6 +189,7 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
       <div class="detail-header">
         <div class="detail-title" id="detailTitle">Selecteer een item</div>
         <div class="detail-actions">
+          <button class="btn btn-ghost" id="reanalyzeBtn" onclick="reanalyzeSingle()" disabled style="font-size:12px;padding:5px 12px">&#8635; Heranalyseer</button>
           <button class="btn btn-green" id="dlSingleBtn" onclick="downloadSingle()" disabled style="font-size:12px;padding:5px 12px">&#8595; Download .docx</button>
           <button class="btn btn-ghost" onclick="closeDetail()" style="font-size:12px;padding:5px 12px">&#10005; Sluiten</button>
         </div>
@@ -390,6 +396,26 @@ function updateStats(){
   updateTabCounts();
 }
 
+// Alleen voor de webweergave - wordt bewust niet meegenomen in de gedownloade .docx (zie build_docx in app.py).
+function buildAdminConfigHtml(ac){
+  if(!ac) return '';
+  if(!ac.mogelijk){
+    return '<div class="admin-box"><div class="admin-box-title">&#9881; Admin configuratie / uitschakelen</div>'+
+      '<div class="admin-box-note">Alleen zichtbaar hier, niet in het gedownloade document</div>'+
+      '<div style="font-size:13px;color:var(--muted)">'+escH(ac.toelichting||'Geen admin-instelling gevonden om deze feature te configureren of uit te schakelen.')+'</div></div>';
+  }
+  const stepsHtml=(ac.stappen||[]).map(s=>'<li>'+escH(s)+'</li>').join('');
+  const rolesHtml=(ac.rollen&&ac.rollen.length)?'<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Benodigde RBAC-rol</div>'+
+    ac.rollen.map(r=>'<span class="badge badge-cat-inform" style="margin-right:4px">'+escH(r)+'</span>').join('')+'</div>':'';
+  return '<div class="admin-box"><div class="admin-box-title">&#9881; Admin configuratie / uitschakelen</div>'+
+    '<div class="admin-box-note">Alleen zichtbaar hier, niet in het gedownloade document</div>'+
+    (ac.locatie?'<div class="admin-loc">'+escH(ac.locatie)+'</div>':'')+
+    (stepsHtml?'<ol class="admin-steps">'+stepsHtml+'</ol>':'')+
+    rolesHtml+
+    (ac.toelichting?'<div style="font-size:12px;color:var(--muted);margin-top:8px">'+escH(ac.toelichting)+'</div>':'')+
+    '</div>';
+}
+
 function buildPreviewHtml(a){
   const score=a.relevantieSCore||0;
   const scoreColors=['','#ef4444','#f97316','#eab308','#22c55e','#0078d4'];
@@ -401,6 +427,7 @@ function buildPreviewHtml(a){
   let linksHtml='';
   if(a.geenSpecifiekeLearnPagina) linksHtml+='<p class="no-learn-note">Geen specifieke Microsoft Learn-pagina gevonden. Hieronder de meest relevante officiële bronnen.</p>';
   (a.links||[]).forEach(l=>{linksHtml+='<div class="link-row"><strong>'+escH(l.label)+':</strong>'+(l.url?'<a href="'+l.url+'" target="_blank" style="font-size:13px">'+escH(l.url)+'</a>':'<span style="font-size:13px;color:var(--muted)">Microsoft Message Center</span>')+'</div>';});
+  const adminHtml=buildAdminConfigHtml(a.adminConfig);
   return '<div class="preview-card">'+scoreHtml+oneLinerHtml+
     '<div id="images-'+escH(a.mcId||'')+'" style="margin-bottom:8px"></div>'+
     '<div class="p-main-title">'+escH(a.title)+'</div>'+
@@ -409,7 +436,7 @@ function buildPreviewHtml(a){
     '<div class="p-section"><div class="p-lbl">Link naar Teams taak:</div><div class="p-val">Planner - '+escH(a.plannerTask)+'</div></div>'+
     '<div class="p-section"><div class="p-lbl">Planning:</div><div class="p-val">'+planHtml+'</div></div>'+
     '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Omschrijving wijziging:</div><div class="p-val">'+escH(a.omschrijvingIntro)+'</div>'+bullHtml+(a.omschrijvingSlot?'<div class="p-val" style="margin-top:8px">'+escH(a.omschrijvingSlot)+'</div>':'')+'</div>'+
-    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Impactanalyse:</div><div class="p-val"><strong>Impact voor organisaties:</strong> '+escH(a.impactOrganisaties)+'<br><br><strong>Technische impact:</strong> '+escH(a.impactTechnisch)+'<br><br><strong>Functionele impact:</strong> '+escH(a.impactFunctioneel)+'</div></div>'+
+    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Impactanalyse:</div><div class="p-val"><strong>Impact voor organisaties:</strong> '+escH(a.impactOrganisaties)+'<br><br><strong>Technische impact:</strong> '+escH(a.impactTechnisch)+'<br><br><strong>Functionele impact:</strong> '+escH(a.impactFunctioneel)+'</div>'+adminHtml+'</div>'+
     '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Links:</div><div class="p-val">'+linksHtml+'</div></div></div>';
 }
 
@@ -428,11 +455,13 @@ async function selectItem(id){
     if(a){
       document.getElementById('detailTitle').textContent=a.mcId||id;
       document.getElementById('dlSingleBtn').disabled=false;
+      document.getElementById('reanalyzeBtn').disabled=false;
       document.getElementById('detailScroll').innerHTML=buildPreviewHtml(a);
       loadImages(a.mcId||id);
     } else {
       document.getElementById('detailTitle').textContent=id;
       document.getElementById('dlSingleBtn').disabled=true;
+      document.getElementById('reanalyzeBtn').disabled=true;
       document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Nog niet geanalyseerd.</p></div>';
     }
   }catch(e){
@@ -444,6 +473,15 @@ function closeDetail(){
   selectedId=null;
   document.getElementById('tablePane').classList.remove('half');document.getElementById('tablePane').classList.add('full');
   document.getElementById('detailPane').style.display='none';
+  document.getElementById('reanalyzeBtn').disabled=true;
+}
+
+async function reanalyzeSingle(){
+  if(!selectedId) return;
+  const item=allTrackedItems().find(i=>i.id===selectedId);
+  if(!item){toast('Item niet gevonden in de huidige lijst - klik eerst \'Items ophalen\'',true);return;}
+  if(!confirm('Dit item opnieuw analyseren en de bestaande analyse overschrijven?')) return;
+  await startAnalysis([item], true);
 }
 
 async function analyzeSelected(){const ids=getSelectedIds();const its=activeItems().filter(i=>ids.includes(i.id));await startAnalysis(its,false);}
