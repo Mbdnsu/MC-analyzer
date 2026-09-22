@@ -386,8 +386,7 @@ function renderTable(){
     const statusOk=sf==='all'||(sf==='isNew'&&i.isNew&&i.status!=='done')||(sf==='new'&&!i.isNew&&i.status!=='done')||i.status===sf;
     const svcOk=svf==='all'||i.service===svf;
     const scoreOk=scf==='all'||!i.relevantieSCore||i.relevantieSCore>=parseInt(scf);
-    const displayTitle=i.analyzedTitle||i.title;
-    const searchOk=!search||i.id.toLowerCase().includes(search)||displayTitle.toLowerCase().includes(search);
+    const searchOk=!search||i.id.toLowerCase().includes(search)||i.title.toLowerCase().includes(search)||(i.analyzedTitle||'').toLowerCase().includes(search);
     return statusOk&&svcOk&&scoreOk&&searchOk;
   });
   if(!visible.length){document.getElementById('itemTable').style.display='none';document.getElementById('tableEmpty').style.display='flex';updateStats();return;}
@@ -402,7 +401,9 @@ function renderTable(){
                 '<span class="badge badge-openstaand">&#9675; Openstaand</span>';
     const newTag=item.isNew?'<span class="badge badge-nieuw-tag">Nieuw!</span>':'';
     const majorTag=item.isMajorChange?'<span class="badge badge-major">Major</span>':'';
-    const displayTitle=escH(item.analyzedTitle||item.title);
+    // Overzicht toont altijd de originele Engelse titel van mc.merill.net, ook na analyse -
+    // de Nederlandse vertaling (item.analyzedTitle) is alleen voor de docx/detailweergave.
+    const displayTitle=escH(item.title);
     tr.innerHTML='<td><input type="checkbox" class="cb item-cb" data-id="'+item.id+'" onchange="updateSelCount()"></td>'+
       '<td class="td-id">'+item.id+'</td>'+
       '<td class="td-title">'+displayTitle+' '+categoryBadge(item)+newTag+majorTag+'</td>'+
