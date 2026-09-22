@@ -182,7 +182,86 @@ Web search: je hebt een web_search tool tot je beschikking (beperkt tot learn.mi
 - omschrijvingIntro/omschrijvingBullets: zoek de officiele Microsoft Learn-pagina op als de brontekst kort of vaag is, en verwerk relevante details (hoe het precies werkt, voor wie, uitzonderingen) in de omschrijving.
 - impactTechnisch/impactFunctioneel/impactOrganisaties: check of er inmiddels een actuelere status is dan de brontekst suggereert (bv. een roadmap-item dat volgens de bron nog "in development" staat maar inmiddels "rolling out" is), en gebruik gevonden technische details (vereiste licenties, afhankelijkheden, voorwaarden) om de impact concreter te maken.
 - links: voeg elke bruikbare Microsoft Learn/Tech Community pagina die je vindt toe aan "links", ook als je 'm niet voor adminConfig gebruikt. Zet "geenSpecifiekeLearnPagina" alleen op true als een zoekopdracht ECHT niets relevants oplevert, niet omdat je niet gezocht hebt.
-- Gebruik in totaal maximaal 5 zoekopdrachten per item (adminConfig + de rest samen) om kosten en latency te beperken. Zoek gericht op wat je daadwerkelijk niet zeker weet, niet standaard bij elk veld."""
+- Gebruik in totaal maximaal 5 zoekopdrachten per item (adminConfig + de rest samen) om kosten en latency te beperken. Zoek gericht op wat je daadwerkelijk niet zeker weet, niet standaard bij elk veld.
+
+BELANGRIJK - geen inline bronvermeldingen: zet NOOIT citation-markup zoals <cite index="...">, [1], (bron: ...) of vergelijkbare tags in de tekstvelden (omschrijvingIntro, omschrijvingBullets, impactTechnisch, impactFunctioneel, impactOrganisaties, etc). Schrijf gewoon vloeiende Nederlandse tekst. Bronnen horen uitsluitend thuis in het "links"-veld en "adminConfig.bronUrl", nergens anders."""
+
+# ─── ROADMAP (lichte analyse, geen docx) ──────────────────────────────────────
+# Roadmap-items op mc.merill.net hebben geen aparte detailpagina die het waard is om te
+# scrapen (vaak alleen ruwe HTML-brokken in "Summary") en de gebruiker wil er expliciet
+# geen zware analyse (geen impact/adminConfig/web_search) en geen docx voor - enkel een
+# korte NL-duiding bovenop de letterlijke brondata van de site zelf.
+ROADMAP_SYSTEM_PROMPT = """Je bent een Microsoft 365 / Modern Workplace engineer. Je krijgt de ruwe data van een Microsoft 365 Roadmap-item (titel, service, status, en de "Summary"-tekst zoals gepubliceerd door Microsoft). Voeg daar een klein stukje Nederlandse duiding aan toe - geen volledige impactanalyse, geen web search, gewoon een snelle praktische toelichting op basis van de gegeven tekst.
+
+Schrijf ALTIJD in het Nederlands. Geen em-dash. Geen inline citation-markup of tags zoals <cite>.
+
+Rond je antwoord ALTIJD af met precies één aanroep van de tool "return_roadmap_analysis":
+- omschrijving: 2-4 zinnen, in gewone taal, wat dit roadmap-item inhoudt - puur gebaseerd op de gegeven Summary/titel, niet verzonnen.
+- waarOpLetten: 1-3 zinnen - waar een M365-beheerder alert op moet zijn (bv. nog geen vaste datum, kan invloed hebben op bestaand beleid, treft specifieke licentie/tenant-instelling), of "Niets specifieks om nu op te letten" als de tekst daar geen aanleiding toe geeft. Verzin geen impact die niet uit de tekst blijkt.
+- mogelijkMcId: als de titel/tekst een gerelateerd Message Center bericht noemt of sterk suggereert (bv. "zie MC123456" of dezelfde featurenaam als een bekend patroon), zet het MC-nummer erin (format "MC123456"), anders null. Raad niet actief een MC-nummer - alleen invullen bij een expliciete match in de tekst."""
+
+ROADMAP_TOOL = {
+    "name": "return_roadmap_analysis",
+    "description": "Retourneer de lichte NL-duiding bij dit roadmap-item.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "omschrijving": {"type": "string"},
+            "waarOpLetten": {"type": "string"},
+            "mogelijkMcId": {"type": ["string", "null"]},
+        },
+        "required": ["omschrijving", "waarOpLetten"],
+    },
+}
+
+def analyze_roadmap(client, item):
+    """Licht, goedkoop pad voor roadmap-items: geen scrape, geen web_search, geen retry-met-
+    validatie-schema zoals analyze() - gewoon 1 kleine tool-call op basis van de al aanwezige
+    Summary-tekst uit messages-index.json. Bij falen: nette fallback i.p.v. de hele run te breken."""
+    summary_text = re.sub(r"<[^>]+>", " ", item.get("summary") or "").strip()
+    summary_text = re.sub(r"\s+", " ", summary_text)
+    text = (f"Roadmap ID: {item['id']}\nTitle: {item['title']}\nService: {item['service']}\n"
+            f"Status/categorie: {item.get('category','')}\n\nSummary:\n{summary_text[:4000] or '(geen summary beschikbaar)'}")
+    msg = None
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-5",
+            max_tokens=1024,
+            system=ROADMAP_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": text}],
+            tools=[ROADMAP_TOOL],
+            tool_choice={"type": "tool", "name": "return_roadmap_analysis"},
+            timeout=60.0,
+        )
+        tool_calls = [b for b in msg.content if getattr(b, "type", None) == "tool_use" and b.name == "return_roadmap_analysis"]
+        if not tool_calls:
+            raise ValueError("Claude heeft geen return_roadmap_analysis tool-call teruggegeven")
+        result = dict(tool_calls[-1].input)
+    except Exception as e:
+        print(f"Fout bij lichte roadmap-analyse {item['id']}: {e}")
+        result = {"omschrijving": summary_text or "Geen samenvatting beschikbaar op mc.merill.net voor dit item.",
+                  "waarOpLetten": "Automatische duiding is mislukt - controleer dit item handmatig op mc.merill.net.",
+                  "mogelijkMcId": None}
+    result.update({
+        "mcId": item["id"],
+        "title": item["title"],
+        "roadmapId": item["id"],
+        "roadmapUrl": item["url"],
+        "service": item["service"],
+        "category": item.get("category", ""),
+        "isMajorChange": item.get("isMajorChange", False),
+        "summaryRaw": summary_text,
+    })
+    usage_obj = getattr(msg, "usage", None) if msg is not None else None
+    if usage_obj is not None:
+        result["_usage"] = {
+            "input_tokens": getattr(usage_obj, "input_tokens", None),
+            "output_tokens": getattr(usage_obj, "output_tokens", None),
+            "cache_read_input_tokens": getattr(usage_obj, "cache_read_input_tokens", None),
+            "cache_creation_input_tokens": getattr(usage_obj, "cache_creation_input_tokens", None),
+            "web_search_requests": 0,
+        }
+    return result
 
 progress = {"total": 0, "done": 0, "current": "", "running": False, "errors": [], "new_analyzed": []}
 
@@ -260,6 +339,7 @@ def fetch_roadmap_list(count):
             "category": entry.get("Category", ""),
             "isMajorChange": bool(entry.get("IsMajorChange", False)),
             "type": "roadmap",
+            "summary": entry.get("Summary", ""),
         })
     return items
 
@@ -488,18 +568,28 @@ def run_analysis(api_key, items, force, webhook_url=""):
             progress["done"] += 1
             continue
         try:
-            text = fetch_item_text(item)
-            time.sleep(1)
-            result = analyze(client, text)
-            time.sleep(2)
-            usage = result.pop("_usage", None)
-            safe_title = re.sub(r'[\\/*?:"<>|]', '', result.get("title", mc_id))[:120]
-            filename = f"{safe_title}.docx"
-            docx_path = OUTPUT_DIR / filename
-            build_docx(result, docx_path)
-            analyzed_at = datetime.now().isoformat()
-            save_analysis(mc_id, item["title"], filename, analyzed_at, result)
-            save_usage(mc_id, analyzed_at, usage)
+            is_roadmap = mc_id.startswith("RM") or item.get("type") == "roadmap"
+            if is_roadmap:
+                # Licht pad: geen scrape, geen web_search, geen docx - zie analyze_roadmap().
+                result = analyze_roadmap(client, item)
+                time.sleep(1)
+                usage = result.pop("_usage", None)
+                analyzed_at = datetime.now().isoformat()
+                save_analysis(mc_id, item["title"], None, analyzed_at, result)
+                save_usage(mc_id, analyzed_at, usage)
+            else:
+                text = fetch_item_text(item)
+                time.sleep(1)
+                result = analyze(client, text)
+                time.sleep(2)
+                usage = result.pop("_usage", None)
+                safe_title = re.sub(r'[\\/*?:"<>|]', '', result.get("title", mc_id))[:120]
+                filename = f"{safe_title}.docx"
+                docx_path = OUTPUT_DIR / filename
+                build_docx(result, docx_path)
+                analyzed_at = datetime.now().isoformat()
+                save_analysis(mc_id, item["title"], filename, analyzed_at, result)
+                save_usage(mc_id, analyzed_at, usage)
             progress["new_analyzed"].append({
                 "mcId": mc_id,
                 "title": result.get("title", item["title"]),
@@ -617,10 +707,12 @@ def usage_summary():
 
 @app.route("/api/download/<mc_id>")
 def download_file(mc_id):
+    # Roadmap-items (RM...) hebben nooit een docx - alleen de lichte webweergave, zie analyze_roadmap().
+    if mc_id.startswith("RM"): return "Roadmap-items hebben geen downloadbaar document", 400
     state = load_state()
     entry = state.get(mc_id)
     if not entry: return "Niet gevonden", 404
-    filename = entry.get("filename", f"{mc_id}_analyse.docx")
+    filename = entry.get("filename") or f"{mc_id}_analyse.docx"
     path = OUTPUT_DIR / filename
     if not path.exists():
         try: build_docx(entry.get("analysis", {}), path)
@@ -635,9 +727,10 @@ def download_zip():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for mc_id in ids:
+            if mc_id.startswith("RM"): continue  # geen docx voor roadmap-items
             entry = state.get(mc_id)
             if not entry: continue
-            filename = entry.get("filename", f"{mc_id}_analyse.docx")
+            filename = entry.get("filename") or f"{mc_id}_analyse.docx"
             path = OUTPUT_DIR / filename
             if not path.exists():
                 try: build_docx(entry.get("analysis", {}), path)

@@ -490,8 +490,24 @@ function buildPreviewHtml(a){
     '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Links:</div><div class="p-val">'+linksHtml+'</div></div></div>';
 }
 
+function buildRoadmapPreviewHtml(a){
+  const catHtml=a.category?'<div class="p-section"><div class="p-lbl">Status/categorie:</div><div class="p-val">'+escH(a.category)+'</div></div>':'';
+  return '<div class="preview-card">'+
+    '<div class="p-main-title">'+escH(a.title)+' <span class="badge badge-cat-roadmap" style="margin-left:6px">Roadmap</span></div>'+
+    '<div class="p-section"><div class="p-lbl">Service:</div><div class="p-val">'+escH(a.service||'')+'</div></div>'+
+    catHtml+
+    '<div class="p-section"><div class="p-lbl">Roadmap link:</div><div class="p-val"><a href="'+a.roadmapUrl+'" target="_blank">'+escH(a.roadmapUrl)+'</a></div></div>'+
+    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Wat dit inhoudt:</div><div class="p-val">'+escH(a.omschrijving||'')+'</div></div>'+
+    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Waar op letten:</div><div class="p-val">'+escH(a.waarOpLetten||'')+'</div></div>'+
+    (a.mogelijkMcId?'<hr class="p-divider"><div class="p-section"><div class="p-lbl">Mogelijk gerelateerd MC item:</div><div class="p-val">'+escH(a.mogelijkMcId)+'</div></div>':'')+
+    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Bron (letterlijk van mc.merill.net):</div><div class="p-val" style="font-size:12px;color:var(--muted)">'+escH(a.summaryRaw||'(geen summary beschikbaar)')+'</div></div>'+
+    '<div style="font-size:11px;color:var(--muted);margin-top:10px">Roadmap-items krijgen geen zware analyse en geen downloadbaar document - dit is de letterlijke brondata plus een korte NL-duiding.</div>'+
+    '</div>';
+}
+
 async function selectItem(id){
   selectedId=id;
+  const isRoadmap=id.startsWith('RM');
   document.querySelectorAll('tbody tr').forEach(tr=>tr.classList.remove('selected'));
   document.querySelector('[data-id="'+id+'"]')?.closest('tr')?.classList.add('selected');
   document.getElementById('tablePane').classList.remove('full');document.getElementById('tablePane').classList.add('half');
@@ -504,13 +520,15 @@ async function selectItem(id){
     const a=entry?.analysis;
     if(a){
       document.getElementById('detailTitle').textContent=a.mcId||id;
-      document.getElementById('dlSingleBtn').disabled=false;
+      document.getElementById('dlSingleBtn').disabled=isRoadmap;
+      document.getElementById('dlSingleBtn').style.display=isRoadmap?'none':'inline-block';
       document.getElementById('reanalyzeBtn').disabled=false;
-      document.getElementById('detailScroll').innerHTML=buildPreviewHtml(a);
-      loadImages(a.mcId||id);
+      document.getElementById('detailScroll').innerHTML=isRoadmap?buildRoadmapPreviewHtml(a):buildPreviewHtml(a);
+      if(!isRoadmap) loadImages(a.mcId||id);
     } else {
       document.getElementById('detailTitle').textContent=id;
       document.getElementById('dlSingleBtn').disabled=true;
+      document.getElementById('dlSingleBtn').style.display=isRoadmap?'none':'inline-block';
       document.getElementById('reanalyzeBtn').disabled=true;
       document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Nog niet geanalyseerd.</p></div>';
     }
@@ -595,11 +613,11 @@ async function resetAnalysis(){
   renderTable(); updateStats(); toast('Analyse gestopt');
 }
 
-function downloadSingle(){if(!selectedId)return;window.location.href='/api/download/'+selectedId;}
+function downloadSingle(){if(!selectedId||selectedId.startsWith('RM'))return;window.location.href='/api/download/'+selectedId;}
 
 async function downloadSelectedZip(){
-  const ids=getSelectedIds().filter(id=>activeItems().find(i=>i.id===id)?.status==='done');
-  if(!ids.length){toast('Selecteer eerst geanalyseerde items',true);return;}
+  const ids=getSelectedIds().filter(id=>!id.startsWith('RM')&&activeItems().find(i=>i.id===id)?.status==='done');
+  if(!ids.length){toast('Selecteer eerst geanalyseerde MC-items (roadmap-items hebben geen document)',true);return;}
   toast('ZIP wordt aangemaakt voor '+ids.length+' items...');
   const resp=await fetch('/api/download-zip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
   if(!resp.ok){toast('Fout bij aanmaken ZIP',true);return;}
