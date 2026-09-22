@@ -115,6 +115,7 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
   <div class="tb-sep">|</div>
   <div class="tb-sub">Microsoft 365 Message Center Analyse Tool</div>
   <div class="tb-right">
+    <button class="btn btn-ghost" onclick="openUsage()" id="usageBtn" style="color:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.2);padding:5px 12px;font-size:12px">&#128202; Gebruik</button>
     <button class="btn btn-ghost" onclick="toggleTheme()" id="themeBtn" style="color:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.2);padding:5px 12px;font-size:12px">&#9789; Thema</button>
     <button class="btn btn-ghost" onclick="openSettings()" style="color:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.2);padding:5px 12px;font-size:12px">&#9881; Instellingen</button>
   </div>
@@ -218,6 +219,13 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeSettings()">Annuleren</button><button class="btn btn-primary" onclick="saveSettings()">Opslaan</button></div>
   </div>
 </div>
+<div class="modal-overlay" id="usageModal" style="display:none" onclick="if(event.target===this)closeUsage()">
+  <div class="modal">
+    <div class="modal-title">&#128202; Claude-gebruik</div>
+    <div id="usageBody" style="font-size:13px;color:var(--muted)">Laden...</div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeUsage()">Sluiten</button></div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 <script>
 let state={activeTab:'mc', mc:[], roadmap:[]};
@@ -269,6 +277,33 @@ function updateTabCounts(){
   document.getElementById('tabMcCount').textContent = '('+state.mc.length+')';
   document.getElementById('tabRoadmapCount').textContent = '('+state.roadmap.length+')';
 }
+
+function fmtNum(n){ return (n||0).toLocaleString('nl-NL'); }
+
+async function openUsage(){
+  document.getElementById('usageModal').style.display='flex';
+  document.getElementById('usageBody').textContent='Laden...';
+  try{
+    const data=await fetch('/api/usage-summary').then(r=>r.json());
+    if(!data.ok) throw new Error('kon gebruik niet laden');
+    const t=data.usage.totaal||{}, w=data.usage.laatste_7_dagen||{};
+    const cacheRead=t.cache_read_input_tokens||0;
+    document.getElementById('usageBody').innerHTML=
+      '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Laatste 7 dagen</div>'+
+      '<div>Analyses: <strong>'+fmtNum(w.analyses)+'</strong></div>'+
+      '<div>Input tokens: <strong>'+fmtNum(w.input_tokens)+'</strong> | Output tokens: <strong>'+fmtNum(w.output_tokens)+'</strong></div>'+
+      '<div>Web searches: <strong>'+fmtNum(w.web_search_requests)+'</strong></div></div>'+
+      '<div><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Totaal (sinds deze versie)</div>'+
+      '<div>Analyses: <strong>'+fmtNum(t.analyses)+'</strong></div>'+
+      '<div>Input tokens: <strong>'+fmtNum(t.input_tokens)+'</strong> | Output tokens: <strong>'+fmtNum(t.output_tokens)+'</strong></div>'+
+      '<div>Cache-read tokens: <strong>'+fmtNum(cacheRead)+'</strong> <span style="font-size:11px">(gratis/90% goedkoper dankzij prompt caching)</span></div>'+
+      '<div>Web searches: <strong>'+fmtNum(t.web_search_requests)+'</strong> <span style="font-size:11px">(~$0,01 per search)</span></div></div>'+
+      '<div style="font-size:11px;color:var(--muted);margin-top:12px;font-style:italic">Exacte kosten via je Anthropic Console (Usage-tab) - dit zijn ruwe tellingen, geen facturatiecijfers.</div>';
+  }catch(e){
+    document.getElementById('usageBody').innerHTML='<span style="color:#c50f1f">Fout bij laden: '+e.message+'</span>';
+  }
+}
+function closeUsage(){document.getElementById('usageModal').style.display='none';}
 
 function openSettings() {
   document.getElementById('settingsApiKey').value=localStorage.getItem('mc_api_key')||'';

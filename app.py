@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify, send_file
 import json, os, re, time, threading, zipfile, io
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 import anthropic
@@ -33,6 +33,16 @@ def init_db():
         )''')
         cur.execute('''CREATE TABLE IF NOT EXISTS seen_items (
             mc_id TEXT PRIMARY KEY
+        )''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS usage_log (
+            id SERIAL PRIMARY KEY,
+            mc_id TEXT,
+            analyzed_at TEXT,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            cache_read_input_tokens INTEGER,
+            cache_creation_input_tokens INTEGER,
+            web_search_requests INTEGER
         )''')
         conn.commit()
         cur.close()
@@ -77,6 +87,49 @@ def save_analysis(mc_id, title, filename, analyzed_at, analysis):
     except Exception as e:
         print(f"save_analysis fout: {e}")
 
+def save_usage(mc_id, analyzed_at, usage):
+    if not usage: return
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('''INSERT INTO usage_log (mc_id, analyzed_at, input_tokens, output_tokens,
+            cache_read_input_tokens, cache_creation_input_tokens, web_search_requests)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+            (mc_id, analyzed_at, usage.get("input_tokens"), usage.get("output_tokens"),
+             usage.get("cache_read_input_tokens"), usage.get("cache_creation_input_tokens"),
+             usage.get("web_search_requests")))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"save_usage fout: {e}")
+
+def load_usage_summary():
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('''SELECT COUNT(*) AS analyses,
+            COALESCE(SUM(input_tokens),0) AS input_tokens,
+            COALESCE(SUM(output_tokens),0) AS output_tokens,
+            COALESCE(SUM(cache_read_input_tokens),0) AS cache_read_input_tokens,
+            COALESCE(SUM(cache_creation_input_tokens),0) AS cache_creation_input_tokens,
+            COALESCE(SUM(web_search_requests),0) AS web_search_requests
+            FROM usage_log''')
+        totals = cur.fetchone()
+        cur.execute('''SELECT COUNT(*) AS analyses,
+            COALESCE(SUM(input_tokens),0) AS input_tokens,
+            COALESCE(SUM(output_tokens),0) AS output_tokens,
+            COALESCE(SUM(web_search_requests),0) AS web_search_requests
+            FROM usage_log WHERE analyzed_at > %s''',
+            ((datetime.now() - timedelta(days=7)).isoformat(),))
+        last7d = cur.fetchone()
+        cur.close()
+        conn.close()
+        return {"totaal": dict(totals), "laatste_7_dagen": dict(last7d)}
+    except Exception as e:
+        print(f"load_usage_summary fout: {e}")
+        return {"totaal": {}, "laatste_7_dagen": {}}
+
 def load_seen():
     try:
         conn = get_db()
@@ -109,11 +162,14 @@ def save_seen(seen):
 # "impactBeheer" (Wijzigingen in beheer of gedrag) is bewust verwijderd uit het schema - wordt niet gebruikt.
 # "adminConfig" is nieuw: wordt ALLEEN in de webweergave getoond (zie templates/index.html),
 # bewust NIET meegenomen in build_docx() - het gedownloade document blijft ongewijzigd.
-SYSTEM_PROMPT = """Je bent een senior Microsoft 365 / Modern Workplace engineer die Message Center en Roadmap items analyseert.
-Schrijf ALTIJD in het Nederlands. Geen em-dash. Geen "ten eerste/tweede". Omschrijving zonder risico/impact.
-Geef ALLEEN pure JSON terug - geen markdown, geen backticks.
+# Het output-formaat wordt sinds kort afgedwongen via de "return_analysis" tool (zie ANALYSIS_TOOL
+# hieronder) i.p.v. een "geef alleen JSON terug"-instructie - vandaar geen JSON-voorbeeld meer hier.
+SYSTEM_PROMPT = """Je bent een senior Microsoft 365 / Modern Workplace engineer die Message Center en Roadmap items analyseert voor een enterprise IT-afdeling.
+Schrijf ALTIJD in het Nederlands. Geen em-dash. Geen "ten eerste/tweede". Omschrijving zonder risico/impact-taal in de introtekst zelf.
 
-{"mcId":"MC1234567 of RM123456","title":"[Platform] Titel [ID]","platform":"platform","roadmapId":"id of null","roadmapUrl":"https://www.microsoft.com/microsoft-365/roadmap","plannerTask":"[Platform] Titel [ID]","planning":["Targeted Release: ...","Algemeen beschikbaar: ..."],"oneLiner":"Max 2 zinnen geschikt als opmerking in Planner. Zakelijk en concreet.","omschrijvingIntro":"tekst","omschrijvingBullets":["punt1","punt2"],"omschrijvingSlot":"tekst of lege string","impactOrganisaties":"laag/gemiddeld/hoog - toelichting","impactTechnisch":"tekst","impactFunctioneel":"tekst","relevantieSCore":3,"relevantieUitleg":"Max 1 zin waarom dit item relevant of minder relevant is.","links":[{"label":"Microsoft Learn - naam","url":"https://..."},{"label":"Microsoft Message Center - MC1234567","url":null}],"geenSpecifiekeLearnPagina":false,"adminConfig":{"mogelijk":true,"bron":"vermeld in bericht | webzoekopdracht | algemene kennis","bronUrl":"https://learn.microsoft.com/... van de pagina die dit bevestigt, of null","locatie":"beheercentrum + menupad, bv. Teams Admin Center > Meetings > Meeting policies","stappen":["stap 1","stap 2","stap 3"],"rollen":["exacte Entra ID rolnaam, bv. Teams Administrator"],"toelichting":"korte context, en bij bron=algemene kennis een verificatie-waarschuwing"}}
+Je output wordt afgedwongen via de "return_analysis" tool. Rond je analyse ALTIJD af met precies één aanroep van die tool met het volledige resultaat. Reageer nooit met losse tekst als eindantwoord - alleen tussentijds nadenken en eventueel web_search-aanroepen zijn toegestaan voor die laatste stap.
+
+relevantieSCore: 1=nauwelijks relevant, 2=beperkt, 3=gemiddeld, 4=relevant, 5=zeer relevant/actie vereist
 
 adminConfig - je hebt een web_search tool tot je beschikking, gebruik die actief voor dit onderdeel:
 - Noemt de brontekst zelf al een concrete admin-instelling met locatie? Dan "bron":"vermeld in bericht", geen zoekopdracht nodig.
@@ -126,9 +182,7 @@ Web search: je hebt een web_search tool tot je beschikking (beperkt tot learn.mi
 - omschrijvingIntro/omschrijvingBullets: zoek de officiele Microsoft Learn-pagina op als de brontekst kort of vaag is, en verwerk relevante details (hoe het precies werkt, voor wie, uitzonderingen) in de omschrijving.
 - impactTechnisch/impactFunctioneel/impactOrganisaties: check of er inmiddels een actuelere status is dan de brontekst suggereert (bv. een roadmap-item dat volgens de bron nog "in development" staat maar inmiddels "rolling out" is), en gebruik gevonden technische details (vereiste licenties, afhankelijkheden, voorwaarden) om de impact concreter te maken.
 - links: voeg elke bruikbare Microsoft Learn/Tech Community pagina die je vindt toe aan "links", ook als je 'm niet voor adminConfig gebruikt. Zet "geenSpecifiekeLearnPagina" alleen op true als een zoekopdracht ECHT niets relevants oplevert, niet omdat je niet gezocht hebt.
-- Gebruik in totaal maximaal 5 zoekopdrachten per item (adminConfig + de rest samen) om kosten en latency te beperken. Zoek gericht op wat je daadwerkelijk niet zeker weet, niet standaard bij elk veld.
-
-relevantieSCore: 1=nauwelijks relevant, 2=beperkt, 3=gemiddeld, 4=relevant, 5=zeer relevant/actie vereist"""
+- Gebruik in totaal maximaal 5 zoekopdrachten per item (adminConfig + de rest samen) om kosten en latency te beperken. Zoek gericht op wat je daadwerkelijk niet zeker weet, niet standaard bij elk veld."""
 
 progress = {"total": 0, "done": 0, "current": "", "running": False, "errors": [], "new_analyzed": []}
 
@@ -247,23 +301,109 @@ WEB_SEARCH_TOOL = {
     "allowed_domains": ["learn.microsoft.com", "techcommunity.microsoft.com", "support.microsoft.com"],
 }
 
+# Forceert het output-formaat via een tool-schema i.p.v. te vertrouwen op "geef alleen JSON
+# terug" in de prompt - geen fragiele backtick-strip + json.loads() meer nodig. cache_control
+# staat op deze (laatste) tool, waarmee ook WEB_SEARCH_TOOL ervoor wordt meegecached.
+ANALYSIS_TOOL = {
+    "name": "return_analysis",
+    "description": "Retourneer de volledige gestructureerde analyse van dit Message Center of Roadmap item. Dit is altijd de allerlaatste stap - roep 'm pas aan als je klaar bent met eventueel zoeken.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "mcId": {"type": "string"},
+            "title": {"type": "string"},
+            "platform": {"type": "string"},
+            "roadmapId": {"type": ["string", "null"]},
+            "roadmapUrl": {"type": "string"},
+            "plannerTask": {"type": "string"},
+            "planning": {"type": "array", "items": {"type": "string"}},
+            "oneLiner": {"type": "string"},
+            "omschrijvingIntro": {"type": "string"},
+            "omschrijvingBullets": {"type": "array", "items": {"type": "string"}},
+            "omschrijvingSlot": {"type": "string"},
+            "impactOrganisaties": {"type": "string"},
+            "impactTechnisch": {"type": "string"},
+            "impactFunctioneel": {"type": "string"},
+            "relevantieSCore": {"type": "integer", "minimum": 1, "maximum": 5},
+            "relevantieUitleg": {"type": "string"},
+            "links": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"label": {"type": "string"}, "url": {"type": ["string", "null"]}},
+                    "required": ["label"],
+                },
+            },
+            "geenSpecifiekeLearnPagina": {"type": "boolean"},
+            "adminConfig": {
+                "type": "object",
+                "properties": {
+                    "mogelijk": {"type": "boolean"},
+                    "bron": {"type": "string", "enum": ["vermeld in bericht", "webzoekopdracht", "algemene kennis"]},
+                    "bronUrl": {"type": ["string", "null"]},
+                    "locatie": {"type": "string"},
+                    "stappen": {"type": "array", "items": {"type": "string"}},
+                    "rollen": {"type": "array", "items": {"type": "string"}},
+                    "toelichting": {"type": "string"},
+                },
+                "required": ["mogelijk"],
+            },
+        },
+        "required": ["mcId", "title", "platform", "relevantieSCore", "relevantieUitleg", "adminConfig"],
+    },
+    "cache_control": {"type": "ephemeral"},
+}
+
+def _validate_analysis(a):
+    """Lichte veiligheidscheck voor het opslaan - de tool-schema hierboven stuurt Claude al
+    de goede kant op, maar garandeert niet 100% dat elk veld het juiste type heeft. Een fout
+    hier triggert een retry in analyze() i.p.v. een kapotte docx of frontend-crash later."""
+    for field in ("mcId", "title", "relevantieUitleg"):
+        if not a.get(field):
+            raise ValueError(f"Verplicht veld ontbreekt of is leeg: {field}")
+    score = a.get("relevantieSCore")
+    if not isinstance(score, int) or not (1 <= score <= 5):
+        raise ValueError(f"relevantieSCore ongeldig: {score!r}")
+    if "links" in a and a["links"] is not None and not isinstance(a["links"], list):
+        raise ValueError("links moet een lijst zijn")
+    if "adminConfig" in a and a["adminConfig"] is not None and not isinstance(a["adminConfig"], dict):
+        raise ValueError("adminConfig moet een object zijn")
+
 def analyze(client, text):
-    msg = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": text}],
-        tools=[WEB_SEARCH_TOOL],
-        timeout=90.0)
-    # Met web_search erbij staat het finale JSON-antwoord niet meer gegarandeerd op
-    # content[0] (daarvoor kunnen server_tool_use/web_search_tool_result blokken staan).
-    text_blocks = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
-    if not text_blocks:
-        raise ValueError("Geen tekstblok in Claude-response (mogelijk alleen tool-use zonder afsluitende JSON)")
-    raw = text_blocks[-1].strip()
-    if raw.startswith("```"):
-        raw = re.sub(r'^```(?:json)?\n?', '', raw)
-        raw = re.sub(r'\n?```$', '', raw)
-    return json.loads(raw)
+    """3 pogingen met exponentiele backoff (1s, 2s) bij parse-/validatie-/timeout-fouten,
+    voor de incidentele hik in Claude's tool-call of een tijdelijke rate limit / timeout."""
+    last_err = None
+    for attempt in range(3):
+        try:
+            msg = client.messages.create(
+                model="claude-sonnet-5",
+                max_tokens=4096,
+                system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": text}],
+                tools=[WEB_SEARCH_TOOL, ANALYSIS_TOOL],
+                timeout=90.0,
+            )
+            tool_calls = [b for b in msg.content if getattr(b, "type", None) == "tool_use" and b.name == "return_analysis"]
+            if not tool_calls:
+                raise ValueError("Claude heeft geen return_analysis tool-call teruggegeven")
+            result = tool_calls[-1].input
+            _validate_analysis(result)
+            usage = getattr(msg, "usage", None)
+            if usage is not None:
+                result["_usage"] = {
+                    "input_tokens": getattr(usage, "input_tokens", None),
+                    "output_tokens": getattr(usage, "output_tokens", None),
+                    "cache_read_input_tokens": getattr(usage, "cache_read_input_tokens", None),
+                    "cache_creation_input_tokens": getattr(usage, "cache_creation_input_tokens", None),
+                    "web_search_requests": getattr(getattr(usage, "server_tool_use", None), "web_search_requests", 0),
+                }
+            return result
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+    raise last_err
 
 # ─── DOCX ─────────────────────────────────────────────────────────────────────
 def build_docx(a, path):
@@ -352,11 +492,14 @@ def run_analysis(api_key, items, force, webhook_url=""):
             time.sleep(1)
             result = analyze(client, text)
             time.sleep(2)
+            usage = result.pop("_usage", None)
             safe_title = re.sub(r'[\\/*?:"<>|]', '', result.get("title", mc_id))[:120]
             filename = f"{safe_title}.docx"
             docx_path = OUTPUT_DIR / filename
             build_docx(result, docx_path)
-            save_analysis(mc_id, item["title"], filename, datetime.now().isoformat(), result)
+            analyzed_at = datetime.now().isoformat()
+            save_analysis(mc_id, item["title"], filename, analyzed_at, result)
+            save_usage(mc_id, analyzed_at, usage)
             progress["new_analyzed"].append({
                 "mcId": mc_id,
                 "title": result.get("title", item["title"]),
@@ -467,6 +610,10 @@ def get_progress():
 @app.route("/api/analyses")
 def get_analyses():
     return jsonify({"ok": True, "analyses": load_state()})
+
+@app.route("/api/usage-summary")
+def usage_summary():
+    return jsonify({"ok": True, "usage": load_usage_summary()})
 
 @app.route("/api/download/<mc_id>")
 def download_file(mc_id):
