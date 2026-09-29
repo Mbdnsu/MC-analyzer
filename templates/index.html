@@ -95,6 +95,9 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 .new-banner{background:color-mix(in srgb, var(--accent) 12%, var(--surface));border:1px solid var(--accent);border-radius:8px;padding:10px 16px;margin:12px 16px;font-size:13px;color:var(--accent);display:none;align-items:center;gap:8px}
 [data-theme="dark"] .new-banner{background:color-mix(in srgb, var(--accent) 18%, black)}
+.err-banner{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:10px 16px;margin:12px 16px 0;font-size:12px;display:none;max-height:160px;overflow-y:auto}
+.err-banner ul{padding-left:18px}.err-banner li{margin-bottom:2px;word-break:break-word}
+[data-theme="dark"] .err-banner{background:#3a1212;border-color:#7f1d1d;color:#fecaca}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;display:flex;align-items:center;justify-content:center}
 .modal{background:var(--surface);border-radius:12px;padding:32px 36px;width:500px;box-shadow:0 8px 40px rgba(0,0,0,0.18)}
 .modal-title{font-size:17px;font-weight:700;margin-bottom:20px}.form-row{margin-bottom:16px}
@@ -157,6 +160,13 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
   <div class="new-banner" id="newBanner">
     <span>&#11088;</span><span id="newBannerText"></span>
   </div>
+  <div class="err-banner" id="errBanner">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <strong id="errBannerTitle">Fouten in de laatste run</strong>
+      <button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="document.getElementById('errBanner').style.display='none'">&#10005; Sluiten</button>
+    </div>
+    <ul id="errList"></ul>
+  </div>
   <div class="split">
     <div class="table-pane full" id="tablePane">
       <div class="stats-bar">
@@ -207,15 +217,16 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
 <div class="modal-overlay" id="settingsModal" style="display:none" onclick="if(event.target===this)closeSettings()">
   <div class="modal">
     <div class="modal-title">&#9881; Instellingen</div>
-    <div class="form-row"><label>Anthropic API Key</label><input type="password" id="settingsApiKey" placeholder="sk-ant-api03-..."><div class="hint">Wordt opgeslagen in je browser.</div></div>
+    <div class="form-row"><label>App-token</label><input type="password" id="settingsAppToken" placeholder="Zelfde waarde als APP_TOKEN in Railway"><div class="hint">Vereist zodra APP_TOKEN op de server is gezet. Wordt opgeslagen in je browser.</div></div>
+    <div class="form-row"><label>Anthropic API Key (optioneel)</label><input type="password" id="settingsApiKey" placeholder="sk-ant-api03-..."><div class="hint">Leeg laten = de server gebruikt ANTHROPIC_API_KEY uit Railway (aanbevolen, dan staat de key niet in je browser).</div></div>
     <div class="form-row"><label>Aantal Message Center items ophalen</label>
       <select id="settingsCount"><option value="25">Laatste 25</option><option value="50">Laatste 50</option><option value="100">Laatste 100</option><option value="200" selected>Laatste 200</option><option value="300">Laatste 300</option><option value="500">Laatste 500</option></select></div>
     <div class="form-row"><label>Aantal Roadmap items ophalen</label>
       <select id="settingsRoadmapCount"><option value="25">Laatste 25</option><option value="50">Laatste 50</option><option value="100" selected>Laatste 100</option><option value="150">Laatste 150</option><option value="200">Laatste 200</option></select>
-      <div class="hint">Roadmap-items komen uit een venster van circa 200 recente items (MC + Roadmap gemengd) dat mc.merill.net dagelijks ververst. Bij minder dan gevraagd krijg je gewoon minder terug.</div></div>
+      <div class="hint">mc.merill.net toont maar een klein live venster roadmap-items; de tool vult dat aan met zijn eigen opgebouwde archief. Bij minder dan gevraagd krijg je gewoon minder terug.</div></div>
     <div class="form-row"><label>Teams Webhook URL (optioneel)</label>
-      <input type="text" id="settingsWebhook" placeholder="https://...webhook.office.com/...">
-      <div class="hint">Ontvang een Teams-bericht na elke analyse.</div></div>
+      <input type="text" id="settingsWebhook" placeholder="https://...logic.azure.com/... (Workflows)">
+      <div class="hint">Power Automate Workflows-webhook. Leeg laten = TEAMS_WEBHOOK_URL uit Railway (indien gezet).</div></div>
     <div class="modal-foot"><button class="btn btn-ghost" onclick="closeSettings()">Annuleren</button><button class="btn btn-primary" onclick="saveSettings()">Opslaan</button></div>
   </div>
 </div>
@@ -230,38 +241,66 @@ td{padding:10px 14px;font-size:13px;vertical-align:middle}
 <script>
 let state={activeTab:'mc', mc:[], roadmap:[]};
 let selectedId=null, pollTimer=null;
+// Selectie leeft los van de DOM: renderTable() bouwt de tabel elke poll opnieuw op en
+// wiste daardoor voorheen alle aangevinkte checkboxes midden in een run.
+const selectedIds=new Set();
 
 function activeItems(){ return state[state.activeTab]; }
 function allTrackedItems(){ return state.mc.concat(state.roadmap); }
 
+// ─── Helpers: escaping, URL's, API ────────────────────────────────────────────
+// escH escapet nu ook quotes zodat het veilig is in attributen (href/title/data-*).
+function escH(s){if(s===null||s===undefined)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+// Alleen http(s) doorlaten: blokkeert javascript:/data: links uit Claude- of bron-output.
+function safeUrl(u){if(!u||typeof u!=='string')return null;const t=u.trim();return /^https?:\/\//i.test(t)?t:null;}
+function linkHtml(u,label,style){const s=safeUrl(u);if(!s)return escH(label||u||'');return '<a href="'+escH(s)+'" target="_blank" rel="noopener noreferrer"'+(style?' style="'+style+'"':'')+'>'+escH(label||s)+'</a>';}
+
+function lsGet(k){try{return localStorage.getItem(k)||'';}catch(e){return '';}}
+function lsSet(k,v){try{if(v)localStorage.setItem(k,v);else localStorage.removeItem(k);}catch(e){}}
+
+// Eén fetch-wrapper: stuurt X-App-Token mee en vangt 401 centraal af.
+async function api(path,opts={}){
+  const headers=Object.assign({},opts.headers||{});
+  const tok=lsGet('mc_app_token');
+  if(tok) headers['X-App-Token']=tok;
+  const resp=await fetch(path,Object.assign({},opts,{headers}));
+  if(resp.status===401){
+    toast('Niet geautoriseerd: vul het juiste app-token in bij Instellingen',true);
+    openSettings();
+    throw new Error('Niet geautoriseerd');
+  }
+  return resp;
+}
+async function apiJson(path,opts){const r=await api(path,opts);return r.json();}
+
 function applyTheme(t){
   document.documentElement.setAttribute('data-theme', t);
-  try{ localStorage.setItem('mc_theme', t); }catch(e){}
+  lsSet('mc_theme', t);
 }
 function toggleTheme(){
   const cur = document.documentElement.getAttribute('data-theme') || 'light';
   applyTheme(cur === 'dark' ? 'light' : 'dark');
 }
-(function initTheme(){
-  let saved = 'light';
-  try{ saved = localStorage.getItem('mc_theme') || 'light'; }catch(e){}
-  applyTheme(saved);
-})();
+(function initTheme(){ applyTheme(lsGet('mc_theme') || 'light'); })();
 
+// Bij (her)laden: loopt er nog een run op de server (bv. gestart door de planner of
+// vanaf een ander tabblad), dan de voortgang weer oppakken i.p.v. een 'dode' UI.
 window.addEventListener('load', async () => {
-  const analyses = await fetch('/api/analyses').then(r=>r.json()).catch(()=>({analyses:{}}));
-  syncAnalysesToItems(analyses.analyses||{});
+  try{
+    const p=await apiJson('/api/progress');
+    if(p.running) startPolling();
+  }catch(e){}
 });
 
-function syncAnalysesToItems(dbState) {
-  for(const item of allTrackedItems()) {
-    if(dbState[item.id]) {
+function applySummaryToItems(summary){
+  for(const item of allTrackedItems()){
+    const s=summary[item.id];
+    if(s){
       item.status='done';
-      item.relevantieSCore=dbState[item.id].analysis?.relevantieSCore||null;
-      item.analyzedTitle=dbState[item.id].analysis?.title||null;
+      item.relevantieSCore=s.relevantieSCore||null;
+      item.analyzedTitle=s.title||null;
     }
   }
-  renderTable(); updateStats(); updateTabCounts();
 }
 
 function switchTab(tab){
@@ -270,7 +309,7 @@ function switchTab(tab){
   document.getElementById('tabRoadmapBtn').classList.toggle('active', tab==='roadmap');
   document.getElementById('searchInput').value='';
   closeDetail();
-  populateServiceFilter(); renderTable(); updateStats();
+  populateServiceFilter(); renderTable(); updateStats(); updateSelCount();
 }
 
 function updateTabCounts(){
@@ -284,7 +323,7 @@ async function openUsage(){
   document.getElementById('usageModal').style.display='flex';
   document.getElementById('usageBody').textContent='Laden...';
   try{
-    const data=await fetch('/api/usage-summary').then(r=>r.json());
+    const data=await apiJson('/api/usage-summary');
     if(!data.ok) throw new Error('kon gebruik niet laden');
     const t=data.usage.totaal||{}, w=data.usage.laatste_7_dagen||{};
     const cacheRead=t.cache_read_input_tokens||0;
@@ -296,32 +335,34 @@ async function openUsage(){
       '<div><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Totaal (sinds deze versie)</div>'+
       '<div>Analyses: <strong>'+fmtNum(t.analyses)+'</strong></div>'+
       '<div>Input tokens: <strong>'+fmtNum(t.input_tokens)+'</strong> | Output tokens: <strong>'+fmtNum(t.output_tokens)+'</strong></div>'+
-      '<div>Cache-read tokens: <strong>'+fmtNum(cacheRead)+'</strong> <span style="font-size:11px">(gratis/90% goedkoper dankzij prompt caching)</span></div>'+
+      '<div>Cache-read tokens: <strong>'+fmtNum(cacheRead)+'</strong> <span style="font-size:11px">(90% goedkoper dankzij prompt caching)</span></div>'+
       '<div>Web searches: <strong>'+fmtNum(t.web_search_requests)+'</strong> <span style="font-size:11px">(~$0,01 per search)</span></div></div>'+
       '<div style="font-size:11px;color:var(--muted);margin-top:12px;font-style:italic">Exacte kosten via je Anthropic Console (Usage-tab) - dit zijn ruwe tellingen, geen facturatiecijfers.</div>';
   }catch(e){
-    document.getElementById('usageBody').innerHTML='<span style="color:#c50f1f">Fout bij laden: '+e.message+'</span>';
+    document.getElementById('usageBody').innerHTML='<span style="color:#c50f1f">Fout bij laden: '+escH(e.message)+'</span>';
   }
 }
 function closeUsage(){document.getElementById('usageModal').style.display='none';}
 
 function openSettings() {
-  document.getElementById('settingsApiKey').value=localStorage.getItem('mc_api_key')||'';
-  document.getElementById('settingsCount').value=localStorage.getItem('mc_count')||'200';
-  document.getElementById('settingsRoadmapCount').value=localStorage.getItem('mc_roadmap_count')||'100';
-  document.getElementById('settingsWebhook').value=localStorage.getItem('mc_webhook')||'';
+  document.getElementById('settingsAppToken').value=lsGet('mc_app_token');
+  document.getElementById('settingsApiKey').value=lsGet('mc_api_key');
+  document.getElementById('settingsCount').value=lsGet('mc_count')||'200';
+  document.getElementById('settingsRoadmapCount').value=lsGet('mc_roadmap_count')||'100';
+  document.getElementById('settingsWebhook').value=lsGet('mc_webhook');
   document.getElementById('settingsModal').style.display='flex';
 }
 function closeSettings(){document.getElementById('settingsModal').style.display='none';}
 function saveSettings(){
-  const k=document.getElementById('settingsApiKey').value.trim();
-  const c=document.getElementById('settingsCount').value;
-  const rc=document.getElementById('settingsRoadmapCount').value;
+  // Lege velden wissen de opgeslagen waarde nu echt (eerder werden ze genegeerd, waardoor
+  // je een oude key/webhook nooit meer kwijtraakte).
   const w=document.getElementById('settingsWebhook').value.trim();
-  if(k)localStorage.setItem('mc_api_key',k);
-  localStorage.setItem('mc_count',c);
-  localStorage.setItem('mc_roadmap_count',rc);
-  if(w)localStorage.setItem('mc_webhook',w);
+  if(w && !/^https:\/\//i.test(w)){toast('Webhook URL moet met https:// beginnen',true);return;}
+  lsSet('mc_app_token',document.getElementById('settingsAppToken').value.trim());
+  lsSet('mc_api_key',document.getElementById('settingsApiKey').value.trim());
+  lsSet('mc_count',document.getElementById('settingsCount').value);
+  lsSet('mc_roadmap_count',document.getElementById('settingsRoadmapCount').value);
+  lsSet('mc_webhook',w);
   closeSettings(); toast('Instellingen opgeslagen');
 }
 
@@ -329,16 +370,19 @@ async function fetchItems(){
   const btn=document.getElementById('fetchBtn');
   btn.disabled=true; btn.innerHTML='<div class="spinner"></div>&nbsp;Ophalen...';
   try{
-    const mcCount=localStorage.getItem('mc_count')||200;
-    const rmCount=localStorage.getItem('mc_roadmap_count')||100;
+    const mcCount=lsGet('mc_count')||200;
+    const rmCount=lsGet('mc_roadmap_count')||100;
     const [mcData, rmData] = await Promise.all([
-      fetch('/api/items?type=mc&count='+mcCount).then(r=>r.json()),
-      fetch('/api/items?type=roadmap&count='+rmCount).then(r=>r.json())
+      apiJson('/api/items?type=mc&count='+encodeURIComponent(mcCount)),
+      apiJson('/api/items?type=roadmap&count='+encodeURIComponent(rmCount))
     ]);
     if(!mcData.ok) throw new Error(mcData.error);
     if(!rmData.ok) throw new Error(rmData.error);
     state.mc = mcData.items;
     state.roadmap = rmData.items;
+    // Selectie opschonen: ids die niet meer in de lijst staan eruit.
+    const known=new Set(allTrackedItems().map(i=>i.id));
+    for(const id of [...selectedIds]) if(!known.has(id)) selectedIds.delete(id);
     updateTabCounts();
     const newCount = (mcData.newCount||0) + (rmData.newCount||0);
     const newItems = allTrackedItems().filter(i=>i.isNew);
@@ -348,7 +392,7 @@ async function fetchItems(){
     } else {
       document.getElementById('newBanner').style.display='none';
     }
-    populateServiceFilter(); renderTable(); updateStats();
+    populateServiceFilter(); renderTable(); updateStats(); updateSelCount();
     document.getElementById('analyzeAllBtn').disabled=false;
     document.getElementById('analyzeUnanalyzedBtn').disabled=false;
     toast((state.mc.length+state.roadmap.length)+' items geladen'+(newCount>0?', '+newCount+' nieuw':''));
@@ -364,7 +408,8 @@ function populateServiceFilter(){
 }
 
 function scoreStars(score){
-  if(!score) return '<span style="color:var(--muted);opacity:.5;font-size:11px">-</span>';
+  score=parseInt(score,10);
+  if(!(score>=1&&score<=5)) return '<span style="color:var(--muted);opacity:.5;font-size:11px">-</span>';
   const colors=['','#ef4444','#f97316','#eab308','#22c55e','#0078d4'];
   return '<span style="color:'+colors[score]+';font-weight:700;font-size:13px">'+'★'.repeat(score)+'☆'.repeat(5-score)+'</span>';
 }
@@ -386,7 +431,7 @@ function renderTable(){
     const statusOk=sf==='all'||(sf==='isNew'&&i.isNew&&i.status!=='done')||(sf==='new'&&!i.isNew&&i.status!=='done')||i.status===sf;
     const svcOk=svf==='all'||i.service===svf;
     const scoreOk=scf==='all'||!i.relevantieSCore||i.relevantieSCore>=parseInt(scf);
-    const searchOk=!search||i.id.toLowerCase().includes(search)||i.title.toLowerCase().includes(search)||(i.analyzedTitle||'').toLowerCase().includes(search);
+    const searchOk=!search||i.id.toLowerCase().includes(search)||(i.title||'').toLowerCase().includes(search)||(i.analyzedTitle||'').toLowerCase().includes(search);
     return statusOk&&svcOk&&scoreOk&&searchOk;
   });
   if(!visible.length){document.getElementById('itemTable').style.display='none';document.getElementById('tableEmpty').style.display='flex';updateStats();return;}
@@ -401,37 +446,41 @@ function renderTable(){
                 '<span class="badge badge-openstaand">&#9675; Openstaand</span>';
     const newTag=item.isNew?'<span class="badge badge-nieuw-tag">Nieuw!</span>':'';
     const majorTag=item.isMajorChange?'<span class="badge badge-major">Major</span>':'';
-    // Overzicht toont altijd de originele Engelse titel van mc.merill.net, ook na analyse -
-    // de Nederlandse vertaling (item.analyzedTitle) is alleen voor de docx/detailweergave.
-    const displayTitle=escH(item.title);
-    tr.innerHTML='<td><input type="checkbox" class="cb item-cb" data-id="'+item.id+'" onchange="updateSelCount()"></td>'+
-      '<td class="td-id">'+item.id+'</td>'+
-      '<td class="td-title">'+displayTitle+' '+categoryBadge(item)+newTag+majorTag+'</td>'+
+    // Overzicht toont altijd de originele Engelse titel van mc.merill.net, ook na analyse.
+    tr.innerHTML='<td><input type="checkbox" class="cb item-cb" data-id="'+escH(item.id)+'"'+(selectedIds.has(item.id)?' checked':'')+'></td>'+
+      '<td class="td-id">'+escH(item.id)+'</td>'+
+      '<td class="td-title">'+escH(item.title)+' '+categoryBadge(item)+newTag+majorTag+'</td>'+
       '<td class="td-svc">'+escH(item.service)+'</td>'+
       '<td class="td-date">'+escH(item.lastUpdated)+'</td>'+
       '<td>'+scoreStars(item.relevantieSCore)+'</td>'+
       '<td>'+badge+'</td>';
+    const cb=tr.querySelector('.item-cb');
+    cb.addEventListener('change',()=>{if(cb.checked)selectedIds.add(item.id);else selectedIds.delete(item.id);updateSelCount();});
     tr.addEventListener('click',e=>{if(e.target.type==='checkbox')return;selectItem(item.id);});
     body.appendChild(tr);
   });
+  const allCb=document.getElementById('selectAll');
+  allCb.checked=visible.length>0&&visible.every(i=>selectedIds.has(i.id));
   updateStats();
 }
 
-function toggleSelectAll(cb){document.querySelectorAll('.item-cb').forEach(c=>c.checked=cb.checked);updateSelCount();}
+function toggleSelectAll(cb){
+  document.querySelectorAll('.item-cb').forEach(c=>{c.checked=cb.checked;if(cb.checked)selectedIds.add(c.dataset.id);else selectedIds.delete(c.dataset.id);});
+  updateSelCount();
+}
+function getSelectedIds(){const ids=new Set(activeItems().map(i=>i.id));return [...selectedIds].filter(id=>ids.has(id));}
 function updateSelCount(){
-  const n=document.querySelectorAll('.item-cb:checked').length;
+  const n=getSelectedIds().length;
   document.getElementById('statSel').textContent=n;
   document.getElementById('analyzeBtn').disabled=n===0;
   document.getElementById('dlZipBtn').disabled=n===0;
 }
-function getSelectedIds(){return Array.from(document.querySelectorAll('.item-cb:checked')).map(c=>c.dataset.id);}
 function updateStats(){
   const list=activeItems();
   document.getElementById('statTotal').textContent=list.length;
   document.getElementById('statDone').textContent=list.filter(i=>i.status==='done').length;
   document.getElementById('statNew').textContent=list.filter(i=>i.isNew&&i.status!=='done').length;
   document.getElementById('statOpen').textContent=list.filter(i=>!i.isNew&&i.status!=='done').length;
-  document.getElementById('dlZipBtn').disabled=!list.some(i=>i.status==='done');
   updateTabCounts();
 }
 
@@ -443,16 +492,18 @@ function buildAdminConfigHtml(ac){
       '<div class="admin-box-note">Alleen zichtbaar hier, niet in het gedownloade document</div>'+
       '<div style="font-size:13px;color:var(--muted)">'+escH(ac.toelichting||'Geen admin-instelling gevonden om deze feature te configureren of uit te schakelen.')+'</div></div>';
   }
-  const stepsHtml=(ac.stappen||[]).map(s=>'<li>'+escH(s)+'</li>').join('');
-  const rolesHtml=(ac.rollen&&ac.rollen.length)?'<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Benodigde RBAC-rol</div>'+
-    ac.rollen.map(r=>'<span class="badge badge-cat-inform" style="margin-right:4px">'+escH(r)+'</span>').join('')+'</div>':'';
+  const stepsHtml=(Array.isArray(ac.stappen)?ac.stappen:[]).map(s=>'<li>'+escH(s)+'</li>').join('');
+  const rollen=Array.isArray(ac.rollen)?ac.rollen:[];
+  const rolesHtml=rollen.length?'<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Benodigde RBAC-rol</div>'+
+    rollen.map(r=>'<span class="badge badge-cat-inform" style="margin-right:4px">'+escH(r)+'</span>').join('')+'</div>':'';
   const isGuess=ac.bron==='algemene kennis';
   const isSearched=ac.bron==='webzoekopdracht';
   let bronHtml='';
   if(isGuess){
     bronHtml='<div class="admin-guess-warn">&#9888; Gebaseerd op algemene kennis, niet expliciet vermeld in dit bericht - verifieer in het beheercentrum voor je dit in een RFC verwerkt</div>';
   } else if(isSearched){
-    bronHtml='<div style="font-size:11px;color:var(--muted);margin-bottom:6px">&#128269; Gevonden via websearch'+(ac.bronUrl?' - <a href="'+ac.bronUrl+'" target="_blank" style="color:var(--accent)">bron</a>':'')+'</div>';
+    const bu=safeUrl(ac.bronUrl);
+    bronHtml='<div style="font-size:11px;color:var(--muted);margin-bottom:6px">&#128269; Gevonden via websearch'+(bu?' - '+linkHtml(bu,'bron','color:var(--accent)'):'')+'</div>';
   } else if(ac.bron){
     bronHtml='<div style="font-size:11px;color:var(--muted);margin-bottom:6px">&#10003; Vermeld in het bericht</div>';
   }
@@ -467,23 +518,30 @@ function buildAdminConfigHtml(ac){
 }
 
 function buildPreviewHtml(a){
-  const score=a.relevantieSCore||0;
+  const score=parseInt(a.relevantieSCore,10)||0;
   const scoreColors=['','#ef4444','#f97316','#eab308','#22c55e','#0078d4'];
   const scoreLabels=['','Nauwelijks relevant','Beperkt relevant','Gemiddeld relevant','Relevant','Zeer relevant'];
-  const scoreHtml=score?'<div class="relevantie-bar"><div style="font-size:22px;font-weight:800;color:'+scoreColors[score]+'">'+'★'.repeat(score)+'☆'.repeat(5-score)+'</div><div><div style="font-size:12px;color:var(--muted)">'+scoreLabels[score]+' ('+score+'/5)</div><div style="font-size:13px;color:var(--text);margin-top:2px">'+escH(a.relevantieUitleg||'')+'</div></div></div>':'';
-  const oneLinerHtml=a.oneLiner?'<div class="one-liner-box"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Samenvatting voor Planner</div><div style="font-size:13px;line-height:1.7;white-space:pre-line">'+escH(a.oneLiner)+'</div><button onclick="copyOneLiner(\''+a.oneLiner.replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/\n/g,"\\n")+'\')" style="margin-top:8px;padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">&#128203; Kopieer</button></div>':'';
-  const planHtml=(Array.isArray(a.planning)?a.planning:[a.planning]).join('<br>');
+  const scoreHtml=(score>=1&&score<=5)?'<div class="relevantie-bar"><div style="font-size:22px;font-weight:800;color:'+scoreColors[score]+'">'+'★'.repeat(score)+'☆'.repeat(5-score)+'</div><div><div style="font-size:12px;color:var(--muted)">'+scoreLabels[score]+' ('+score+'/5)</div><div style="font-size:13px;color:var(--text);margin-top:2px">'+escH(a.relevantieUitleg||'')+'</div></div></div>':'';
+  // Kopieertekst via data-attribuut i.p.v. een inline JS-string: geen escape-gepuzzel meer
+  // en geen manier om met een " of ' in Claude's tekst uit het attribuut te breken.
+  const oneLinerHtml=a.oneLiner?'<div class="one-liner-box"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Samenvatting voor Planner</div><div style="font-size:13px;line-height:1.7;white-space:pre-line">'+escH(a.oneLiner)+'</div><button data-txt="'+escH(a.oneLiner)+'" onclick="copyOneLiner(this.dataset.txt)" style="margin-top:8px;padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">&#128203; Kopieer</button></div>':'';
+  const planArr=Array.isArray(a.planning)?a.planning:(a.planning?[a.planning]:[]);
+  const planHtml=planArr.map(escH).join('<br>');
   const bullArr=Array.isArray(a.omschrijvingBullets)?a.omschrijvingBullets:(a.omschrijvingBullets?[a.omschrijvingBullets]:[]);
   const bullHtml=bullArr.length?'<ul class="p-bullets">'+bullArr.map(b=>'<li>'+escH(b)+'</li>').join('')+'</ul>':'';
   let linksHtml='';
   if(a.geenSpecifiekeLearnPagina) linksHtml+='<p class="no-learn-note">Geen specifieke Microsoft Learn-pagina gevonden. Hieronder de meest relevante officiële bronnen.</p>';
-  (a.links||[]).forEach(l=>{linksHtml+='<div class="link-row"><strong>'+escH(l.label)+':</strong>'+(l.url?'<a href="'+l.url+'" target="_blank" style="font-size:13px">'+escH(l.url)+'</a>':'<span style="font-size:13px;color:var(--muted)">Microsoft Message Center</span>')+'</div>';});
+  (Array.isArray(a.links)?a.links:[]).forEach(l=>{
+    const u=safeUrl(l&&l.url);
+    linksHtml+='<div class="link-row"><strong>'+escH(l&&l.label)+':</strong>'+(u?linkHtml(u,u,'font-size:13px'):'<span style="font-size:13px;color:var(--muted)">Microsoft Message Center</span>')+'</div>';
+  });
+  const rmUrl=safeUrl(a.roadmapUrl);
   const adminHtml=buildAdminConfigHtml(a.adminConfig);
   return '<div class="preview-card">'+scoreHtml+oneLinerHtml+
     '<div id="images-'+escH(a.mcId||'')+'" style="margin-bottom:8px"></div>'+
     '<div class="p-main-title">'+escH(a.title)+'</div>'+
     '<div class="p-section"><div class="p-lbl">Platform:</div><div class="p-val">'+escH(a.platform)+'</div></div>'+
-    '<div class="p-section"><div class="p-lbl">Link naar Microsoft:</div><div class="p-val">Roadmap ID: '+escH(a.roadmapId||'niet van toepassing')+'<br><a href="'+a.roadmapUrl+'" target="_blank">'+escH(a.roadmapUrl)+'</a></div></div>'+
+    '<div class="p-section"><div class="p-lbl">Link naar Microsoft:</div><div class="p-val">Roadmap ID: '+escH(a.roadmapId||'niet van toepassing')+(rmUrl?'<br>'+linkHtml(rmUrl):'')+'</div></div>'+
     '<div class="p-section"><div class="p-lbl">Link naar Teams taak:</div><div class="p-val">Planner - '+escH(a.title||'')+'</div></div>'+
     '<div class="p-section"><div class="p-lbl">Planning:</div><div class="p-val">'+planHtml+'</div></div>'+
     '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Omschrijving wijziging:</div><div class="p-val">'+escH(a.omschrijvingIntro)+'</div>'+bullHtml+(a.omschrijvingSlot?'<div class="p-val" style="margin-top:8px">'+escH(a.omschrijvingSlot)+'</div>':'')+'</div>'+
@@ -496,11 +554,12 @@ function buildRoadmapPreviewHtml(a){
   const mcRelHtml=a.gerelateerdMcId?
     '<div class="p-val"><span class="badge badge-cat-inform" style="margin-right:6px">'+escH(a.gerelateerdMcId)+'</span>'+escH(a.mcRelatieUitleg||'')+'</div>':
     '<div class="p-val" style="color:var(--muted)">'+escH(a.mcRelatieUitleg||'Geen gerelateerd MC-bericht gevonden.')+'</div>';
+  const rmUrl=safeUrl(a.roadmapUrl);
   return '<div class="preview-card">'+
     '<div class="p-main-title">'+escH(a.title)+' <span class="badge badge-cat-roadmap" style="margin-left:6px">Roadmap</span></div>'+
     '<div class="p-section"><div class="p-lbl">Service:</div><div class="p-val">'+escH(a.service||'')+'</div></div>'+
     catHtml+
-    '<div class="p-section"><div class="p-lbl">Roadmap link:</div><div class="p-val"><a href="'+a.roadmapUrl+'" target="_blank">'+escH(a.roadmapUrl)+'</a></div></div>'+
+    '<div class="p-section"><div class="p-lbl">Roadmap link:</div><div class="p-val">'+(rmUrl?linkHtml(rmUrl):'niet beschikbaar')+'</div></div>'+
     '<hr class="p-divider">'+
     '<div class="p-section"><div class="p-lbl">Letterlijke tekst (bron: mc.merill.net):</div>'+
     '<div class="p-val" style="font-size:14px;line-height:1.6;background:color-mix(in srgb, var(--accent) 6%, transparent);border-left:3px solid var(--accent);padding:10px 12px;border-radius:4px">'+escH(a.summaryRaw||'(geen summary beschikbaar)')+'</div></div>'+
@@ -515,31 +574,31 @@ async function selectItem(id){
   selectedId=id;
   const isRoadmap=id.startsWith('RM');
   document.querySelectorAll('tbody tr').forEach(tr=>tr.classList.remove('selected'));
-  document.querySelector('[data-id="'+id+'"]')?.closest('tr')?.classList.add('selected');
+  document.querySelectorAll('.item-cb').forEach(c=>{if(c.dataset.id===id)c.closest('tr').classList.add('selected');});
   document.getElementById('tablePane').classList.remove('full');document.getElementById('tablePane').classList.add('half');
   document.getElementById('detailPane').style.display='flex';
   document.getElementById('detailTitle').textContent=id;
   document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Laden...</p></div>';
+  const dl=document.getElementById('dlSingleBtn');
+  dl.style.display=isRoadmap?'none':'inline-flex';
   try{
-    const data=await fetch('/api/analyses').then(r=>r.json());
-    const entry=data.analyses?.[id];
-    const a=entry?.analysis;
+    // Alleen DIT item ophalen i.p.v. alle analyses met volledige JSONB.
+    const data=await apiJson('/api/analyses/'+encodeURIComponent(id));
+    if(selectedId!==id) return; // gebruiker heeft intussen iets anders aangeklikt
+    const a=data.analysis;
     if(a){
       document.getElementById('detailTitle').textContent=a.mcId||id;
-      document.getElementById('dlSingleBtn').disabled=isRoadmap;
-      document.getElementById('dlSingleBtn').style.display=isRoadmap?'none':'inline-block';
+      dl.disabled=isRoadmap;
       document.getElementById('reanalyzeBtn').disabled=false;
       document.getElementById('detailScroll').innerHTML=isRoadmap?buildRoadmapPreviewHtml(a):buildPreviewHtml(a);
       if(!isRoadmap) loadImages(a.mcId||id);
     } else {
-      document.getElementById('detailTitle').textContent=id;
-      document.getElementById('dlSingleBtn').disabled=true;
-      document.getElementById('dlSingleBtn').style.display=isRoadmap?'none':'inline-block';
+      dl.disabled=true;
       document.getElementById('reanalyzeBtn').disabled=true;
       document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Nog niet geanalyseerd.</p></div>';
     }
   }catch(e){
-    document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:#c50f1f">Fout bij laden: '+e.message+'</p></div>';
+    document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:#c50f1f">Fout bij laden: '+escH(e.message)+'</p></div>';
   }
 }
 
@@ -568,50 +627,76 @@ async function analyzeAllUnanalyzed(){
 async function analyzeAll(){const its=activeItems().filter(i=>i.isNew&&i.status!=='done');if(!its.length){toast('Geen nieuwe items gevonden sinds je laatste bezoek');return;}await startAnalysis(its,false);}
 
 async function startAnalysis(items,force){
-  const api_key=localStorage.getItem('mc_api_key')||'';
-  if(!api_key){openSettings();toast('Stel eerst je API key in',true);return;}
-  const webhook_url=localStorage.getItem('mc_webhook')||'';
-  const resp=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({api_key,items,force,webhook_url})}).then(r=>r.json());
-  if(!resp.ok){toast('Fout: '+resp.error,true);return;}
+  // API-key uit de browser is optioneel: leeg = server gebruikt ANTHROPIC_API_KEY.
+  const api_key=lsGet('mc_api_key');
+  const webhook_url=lsGet('mc_webhook');
+  // Alleen de velden die de server nodig heeft; url wordt server-side opgebouwd.
+  const payloadItems=items.map(i=>({id:i.id,title:i.title,service:i.service,category:i.category,isMajorChange:i.isMajorChange,summary:i.summary||''}));
+  let resp;
+  try{
+    resp=await apiJson('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({api_key,items:payloadItems,force,webhook_url})});
+  }catch(e){toast('Fout: '+e.message,true);return;}
+  if(!resp.ok){
+    if(/API key/i.test(resp.error||'')){openSettings();toast('Geen API key: zet ANTHROPIC_API_KEY in Railway of vul er een in bij Instellingen',true);}
+    else toast('Fout: '+resp.error,true);
+    return;
+  }
+  document.getElementById('errBanner').style.display='none';
   items.forEach(i=>{const item=allTrackedItems().find(x=>x.id===i.id);if(item)item.status='processing';});
   renderTable();
-  document.getElementById('progressWrap').style.display='block';
-  document.getElementById('resetBtn').style.display='flex';
-  pollTimer=setInterval(pollProgress,2000);
+  startPolling();
 }
 
+function startPolling(){
+  document.getElementById('progressWrap').style.display='block';
+  document.getElementById('resetBtn').style.display='flex';
+  if(pollTimer) clearInterval(pollTimer);
+  pollTimer=setInterval(pollProgress,2000);
+  pollProgress();
+}
+
+function showErrors(errors){
+  const box=document.getElementById('errBanner');
+  if(!errors||!errors.length){box.style.display='none';return;}
+  document.getElementById('errBannerTitle').textContent=errors.length+' fout'+(errors.length===1?'':'en')+' in de laatste run';
+  document.getElementById('errList').innerHTML=errors.map(e=>'<li>'+escH(e)+'</li>').join('');
+  box.style.display='block';
+}
+
+let pollBusy=false;
 async function pollProgress(){
+  if(pollBusy) return; // voorkom overlappende polls bij een trage server
+  pollBusy=true;
   try{
-    const p=await fetch('/api/progress').then(r=>r.json());
+    const p=await apiJson('/api/progress');
     const pct=p.total>0?Math.round((p.done/p.total)*100):0;
     document.getElementById('progressFill').style.width=pct+'%';
     document.getElementById('progressLbl').textContent=p.running?
-      'Analyseren '+p.done+'/'+p.total+': '+p.current:'Klaar - '+p.done+' verwerkt';
+      'Analyseren '+p.done+'/'+p.total+': '+(p.current||''):'Klaar - '+p.done+' verwerkt';
     document.getElementById('resetBtn').style.display=p.running?'flex':'none';
-    const data=await fetch('/api/analyses').then(r=>r.json());
-    const dbState=data.analyses||{};
-    for(const item of allTrackedItems()){
-      if(dbState[item.id]){
-        item.status='done';
-        item.relevantieSCore=dbState[item.id].analysis?.relevantieSCore||null;
-        item.analyzedTitle=dbState[item.id].analysis?.title||null;
-      }
-    }
+    // Lichte summary (id -> score/titel) i.p.v. alle analyses met volledige JSONB.
+    const data=await apiJson('/api/analyses');
+    const summary=data.analyses||{};
+    applySummaryToItems(summary);
     renderTable(); updateStats();
     if(!p.running){
       clearInterval(pollTimer); pollTimer=null;
+      for(const item of allTrackedItems()){if(item.status==='processing')item.status=summary[item.id]?'done':'new';}
+      renderTable(); updateStats();
       setTimeout(()=>{document.getElementById('progressWrap').style.display='none';},3000);
-      const errSuffix=(p.errors&&p.errors.length)?' ('+p.errors.length+' fouten, zie serverlog)':'';
-      toast('Analyse klaar - '+p.done+' verwerkt'+errSuffix, !!(p.errors&&p.errors.length));
-      if(selectedId&&dbState[selectedId]) selectItem(selectedId);
+      const nErr=(p.errors||[]).length;
+      showErrors(p.errors);
+      toast('Analyse klaar - '+p.done+' verwerkt'+(nErr?' ('+nErr+' fouten, zie melding bovenaan)':''), nErr>0);
+      if(selectedId&&summary[selectedId]) selectItem(selectedId);
     }
   }catch(e){console.warn('Poll fout:',e);}
+  finally{pollBusy=false;}
 }
 
 async function resetAnalysis(){
-  if(!confirm('Weet je zeker dat je de analyse wilt stoppen?')) return;
-  await fetch('/api/reset',{method:'POST'});
+  if(!confirm('Weet je zeker dat je de analyse wilt stoppen? Het item dat nu bezig is wordt nog afgerond.')) return;
+  try{await api('/api/reset',{method:'POST'});}catch(e){return;}
   clearInterval(pollTimer); pollTimer=null;
   document.getElementById('progressWrap').style.display='none';
   document.getElementById('resetBtn').style.display='none';
@@ -619,30 +704,45 @@ async function resetAnalysis(){
   renderTable(); updateStats(); toast('Analyse gestopt');
 }
 
-function downloadSingle(){if(!selectedId||selectedId.startsWith('RM'))return;window.location.href='/api/download/'+selectedId;}
+// Downloads via fetch+blob zodat de app-token als header mee kan (window.location kan geen headers zetten).
+async function downloadBlob(path,opts,fallbackName){
+  const resp=await api(path,opts);
+  if(!resp.ok){const t=await resp.text().catch(()=>'');throw new Error(t||('HTTP '+resp.status));}
+  const cd=resp.headers.get('Content-Disposition')||'';
+  let name=fallbackName;
+  const m=cd.match(/filename\*=UTF-8''([^;]+)/i)||cd.match(/filename="?([^";]+)"?/i);
+  if(m){try{name=decodeURIComponent(m[1]);}catch(e){name=m[1];}}
+  const blob=await resp.blob();
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=name;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+}
+
+async function downloadSingle(){
+  if(!selectedId||selectedId.startsWith('RM'))return;
+  try{await downloadBlob('/api/download/'+encodeURIComponent(selectedId),{},selectedId+'.docx');}
+  catch(e){toast('Download mislukt: '+e.message,true);}
+}
 
 async function downloadSelectedZip(){
   const ids=getSelectedIds().filter(id=>!id.startsWith('RM')&&activeItems().find(i=>i.id===id)?.status==='done');
   if(!ids.length){toast('Selecteer eerst geanalyseerde MC-items (roadmap-items hebben geen document)',true);return;}
   toast('ZIP wordt aangemaakt voor '+ids.length+' items...');
-  const resp=await fetch('/api/download-zip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})});
-  if(!resp.ok){toast('Fout bij aanmaken ZIP',true);return;}
-  const blob=await resp.blob();
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;
-  a.download='MC_analyses_'+new Date().toISOString().slice(0,10)+'.zip';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
-  toast('ZIP gedownload ('+ids.length+' bestanden)');
+  try{
+    await downloadBlob('/api/download-zip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})},'MC_analyses_'+new Date().toISOString().slice(0,10)+'.zip');
+    toast('ZIP gedownload ('+ids.length+' bestanden)');
+  }catch(e){toast('Fout bij aanmaken ZIP: '+e.message,true);}
 }
 
 async function loadImages(mcId){
   const container=document.getElementById('images-'+mcId);
   if(!container)return;
   try{
-    const data=await fetch('/api/images/'+mcId).then(r=>r.json());
-    if(!data.images||data.images.length===0){container.innerHTML='';return;}
-    const its=data.images.map(img=>'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">&#128444;</span><a href="'+img.url+'" target="_blank" style="font-size:13px;color:var(--accent);text-decoration:none">'+escH(img.alt||'Afbeelding '+img.index)+' &#8599;</a></div>').join('');
-    container.innerHTML='<div style="background:var(--row-hover);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:8px">Afbeeldingen in dit item ('+data.images.length+')</div>'+its+'</div>';
+    const data=await apiJson('/api/images/'+encodeURIComponent(mcId));
+    const imgs=(data.images||[]).filter(img=>safeUrl(img.url));
+    if(!imgs.length){container.innerHTML='';return;}
+    const its=imgs.map(img=>'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">&#128444;</span>'+linkHtml(img.url,(img.alt||'Afbeelding '+img.index)+' ↗','font-size:13px;color:var(--accent);text-decoration:none')+'</div>').join('');
+    container.innerHTML='<div style="background:var(--row-hover);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:8px">Afbeeldingen in dit item ('+imgs.length+')</div>'+its+'</div>';
   }catch(e){if(container)container.innerHTML='';}
 }
 
@@ -652,9 +752,8 @@ function copyOneLiner(text){
   });
 }
 
-function escH(s){if(!s)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 let toastTimer;
-function toast(msg,err=false){const el=document.getElementById('toast');el.textContent=msg;el.style.background=err?'#c50f1f':'var(--dark)';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),3500);}
+function toast(msg,err=false){const el=document.getElementById('toast');el.textContent=msg;el.style.background=err?'#c50f1f':'var(--dark)';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),err?6000:3500);}
 </script>
 </body>
 </html>
