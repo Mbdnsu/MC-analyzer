@@ -124,9 +124,9 @@ td.cbc label{display:flex;align-items:flex-start;justify-content:center;padding:
 td.cbc input,th input{width:15px;height:15px;accent-color:var(--accent);margin:0;cursor:pointer}
 .idc{white-space:nowrap;font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px;padding-top:1px}
 .dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
-.dot.new{background:var(--ok)}
+.dot.new{background:var(--danger)}
 .dot.open{border:1.5px solid var(--faint)}
-.dot.done{background:var(--accent)}
+.dot.done{background:var(--ok)}
 .dot.proc{background:var(--warn);animation:pulse 1s infinite}
 .dot.err{background:var(--danger)}
 @keyframes pulse{50%{opacity:.35}}
@@ -142,19 +142,23 @@ td.cbc input,th input{width:15px;height:15px;accent-color:var(--accent);margin:0
 .muted{color:var(--muted)}
 .svc,.date{color:var(--muted);font-size:12px}
 .date{white-space:nowrap;font-variant-numeric:tabular-nums}
-.pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
-.pill.new{background:var(--ok-soft);color:var(--ok)}
-.pill.open{background:var(--surface2);color:var(--muted);border:1px solid var(--border)}
-.pill.done{background:var(--accent-soft);color:var(--accent)}
-.pill.proc{background:var(--warn-soft);color:var(--warn)}
-.pill.err{background:var(--danger-soft);color:var(--danger)}
+/* Status als gekleurde tekst: nieuw rood, geanalyseerd groen, openstaand grijs.
+   Fout krijgt een gevuld label zodat het niet verward wordt met 'nieuw'. */
+.stx{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;white-space:nowrap;padding-top:1px}
+.stx.new{color:var(--danger)}
+.stx.open{color:var(--faint);font-weight:500}
+.stx.done{color:var(--ok)}
+.stx.proc{color:var(--warn)}
+.stx.err .lbl{background:var(--danger);color:#fff;border-radius:4px;padding:1px 6px}
+.stx.err{color:var(--danger)}
+th.col-st,td.col-st{width:112px}
 .score{display:inline-grid;place-items:center;width:24px;height:22px;border-radius:5px;font-weight:700;font-size:12px;font-variant-numeric:tabular-nums}
 .score.s0{color:var(--faint)}
 .score.s1,.score.s2{background:var(--surface2);color:var(--muted);border:1px solid var(--border)}
 .score.s3{background:color-mix(in srgb,var(--accent) 16%,var(--surface));color:var(--accent)}
 .score.s4{background:color-mix(in srgb,var(--accent) 55%,var(--surface));color:var(--accent-fg)}
 .score.s5{background:var(--accent);color:var(--accent-fg)}
-.main.open .col-svc,.main.open .col-date,.main.open .col-st{display:none}
+.main.open .col-svc,.main.open .col-date{display:none}
 .empty{padding:56px 24px;text-align:center;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px}
 .empty b{color:var(--fg);font-size:14px}
 .kbhint{padding:10px 14px;color:var(--faint);font-size:11.5px;border-top:1px solid var(--border);margin-top:auto;display:flex;gap:14px;flex-wrap:wrap}
@@ -186,8 +190,21 @@ td.cbc input,th input{width:15px;height:15px;accent-color:var(--accent);margin:0
 .relev{display:flex;gap:12px;align-items:flex-start}
 .relev .score{width:34px;height:30px;font-size:15px;flex:none}
 .relev .lbl{font-weight:600;margin-bottom:2px}
-.impact{display:grid;gap:12px}
-.impact b{display:block;font-size:12px;margin-bottom:2px}
+/* Impact: drie rijen, label + icoon links, tekst rechts. Eerste zin = kernpunt (vet). */
+.impact{display:flex;flex-direction:column}
+.imp{display:grid;grid-template-columns:128px minmax(0,1fr);gap:14px;padding:12px 0;border-top:1px solid var(--border)}
+.imp:first-child{border-top:0;padding-top:2px}
+.imp:last-child{padding-bottom:0}
+.imp-h{display:flex;align-items:flex-start;gap:8px;font-weight:700;font-size:12.5px;padding-top:1px}
+.imp-ic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex:none;margin-top:-4px}
+.imp-ic svg.i{width:14px;height:14px}
+.imp.org .imp-ic{background:var(--info-soft);color:var(--info)}
+.imp.tech .imp-ic{background:var(--violet-soft);color:var(--violet)}
+.imp.func .imp-ic{background:var(--ok-soft);color:var(--ok)}
+.imp-t{min-width:0;line-height:1.65}
+.imp-t .lead{font-weight:600;color:var(--fg);margin:0 0 4px}
+.imp-t .rest{color:var(--muted);margin:0}
+code.tk{font-family:var(--mono);font-size:.88em;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--fg);overflow-wrap:anywhere}
 .admin .where{font-weight:600;margin-bottom:6px;font-family:var(--mono);font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:6px 9px;overflow-x:auto;white-space:nowrap}
 .admin ol{margin:6px 0 0;padding-left:20px;line-height:1.7}
 .admin .src{font-size:11.5px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -246,17 +263,21 @@ a{color:var(--accent)}
   .prog{min-width:0;width:100%}
   .stat{padding:5px 7px}
   .main,.main.open{grid-template-columns:1fr}
-  .col-svc,.col-date,.col-st{display:none}
+  .col-svc,.col-date{display:none}
+  th.col-st,td.col-st{width:34px}
+  .stx .lbl{display:none}
+  thead th.col-st{font-size:0}
   .list{overflow:visible;border-right:0}
   .ttl{overflow-wrap:anywhere}
   table{table-layout:fixed}
   thead th:nth-child(1){width:38px}
   thead th:nth-child(2){width:98px}
-  thead th:nth-child(6){width:52px}
+  thead th:nth-child(7){width:52px}
   .idc{font-size:11px}
   .kbhint{display:none}
   .detail{position:fixed;inset:0;z-index:25}
   .kv{grid-template-columns:1fr}
+  .imp{grid-template-columns:1fr;gap:6px}
   .ugrid{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
@@ -274,6 +295,9 @@ a{color:var(--accent)}
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></symbol>
+  <symbol id="i-org" viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-5h6v5"/><path d="M9 10h.01M15 10h.01"/></symbol>
+  <symbol id="i-tech" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5"/><path d="M16 7l5 5-5 5"/><path d="M14 4l-4 16"/></symbol>
+  <symbol id="i-func" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
   <symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/></symbol>
 </svg>
 
@@ -322,7 +346,7 @@ a{color:var(--accent)}
       <table id="tbl" hidden>
         <thead><tr>
           <th style="width:38px"><label style="display:flex;justify-content:center"><input type="checkbox" id="cb-all" aria-label="Alles selecteren"></label></th>
-          <th>ID</th><th>Titel</th><th class="col-svc">Service</th><th class="col-date sortable" id="th-date">Bijgewerkt</th><th class="sortable" id="th-score">Score</th><th class="col-st">Status</th>
+          <th>ID</th><th class="col-st">Status</th><th>Titel</th><th class="col-svc">Service</th><th class="col-date sortable" id="th-date">Bijgewerkt</th><th class="sortable" id="th-score">Score</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
@@ -487,12 +511,13 @@ function renderRows(){
     // Overzicht toont altijd de originele Engelse titel van mc.merill.net.
     return '<tr data-id="'+escH(i.id)+'" class="'+(S.open===i.id?'cur ':'')+(S.kb===idx?'kb':'')+'">'+
       '<td class="cbc"><label><input type="checkbox" data-cb="'+escH(i.id)+'"'+(S.sel.has(i.id)?' checked':'')+' aria-label="Selecteer '+escH(i.id)+'"></label></td>'+
-      '<td><span class="idc"><span class="dot '+st+'" title="'+stLabel[st]+'"></span>'+escH(i.id)+'</span></td>'+
+      '<td><span class="idc">'+escH(i.id)+'</span></td>'+
+      '<td class="col-st"><span class="stx '+st+'" title="'+stLabel[st]+'"><span class="dot '+st+'"></span><span class="lbl">'+stLabel[st]+'</span></span></td>'+
       '<td class="ttl"><span class="t">'+escH(i.title)+'</span>'+(tags.length?'<span class="tags">'+tags.join('')+'</span>':'')+'</td>'+
       '<td class="col-svc svc">'+escH(i.service)+'</td>'+
       '<td class="col-date date">'+escH(i.lastUpdated)+'</td>'+
       '<td>'+(cat==='roadmap'?'<span class="score s0" title="Roadmap-items krijgen geen score">·</span>':'<span class="score s'+sc+'" title="'+(sc?'Relevantie '+sc+'/5':'Nog geen score')+'">'+(sc||'–')+'</span>')+'</td>'+
-      '<td class="col-st"><span class="pill '+st+'">'+stLabel[st]+'</span></td></tr>';
+      '</tr>';
   }).join('');
   const all=$('cb-all'); all.checked=L.length>0&&L.every(i=>S.sel.has(i.id)); all.indeterminate=!all.checked&&L.some(i=>S.sel.has(i.id));
   $('th-score').textContent='Score'+(S.sort==='score'?' ↓':'');
@@ -519,6 +544,27 @@ function render(){renderCounts();renderBar();renderRows();renderErrors();}
 const scoreLbl=['','Nauwelijks relevant','Beperkt relevant','Gemiddeld relevant','Relevant','Zeer relevant'];
 function sec(title,body,cls){return '<section class="sec '+(cls||'')+'"><h3>'+title+'</h3>'+body+'</section>';}
 function asList(v){return Array.isArray(v)?v:(v?[v]:[]);}
+// Technische namen als code tonen: PascalCase-identifiers met 3+ delen (policy-/parameternamen)
+// en PowerShell-cmdlets (Verb-Noun). Draait op AL ge-escapete tekst; de patronen bevatten geen
+// & < > " dus er kan geen markup ontstaan.
+function fmtTech(escaped){
+  return escaped
+    .replace(/\b(?:Get|Set|New|Remove|Grant|Revoke|Enable|Disable|Add|Update|Connect|Start|Stop|Test|Invoke)-[A-Z][A-Za-z]+\b/g,m=>'<code class="tk">'+m+'</code>')
+    .replace(/(^|[^\w>-])([A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+){2,})\b/g,(m,pre,id)=>pre+'<code class="tk">'+id+'</code>');
+}
+function richText(t){return fmtTech(escH(t||''));}
+// Eerste zin apart (kernpunt), rest eronder. Splitst alleen op . ! ? gevolgd door spatie + hoofdletter/cijfer.
+function leadRest(t){
+  t=String(t||'').trim(); if(!t) return {lead:'',rest:''};
+  const m=t.match(/^(.+?[.!?])\s+(?=[A-Z0-9"(])/);
+  if(!m||m[1].length<25) return {lead:t,rest:''};
+  return {lead:m[1],rest:t.slice(m[0].length)};
+}
+function impRow(cls,icon,label,text){
+  const lr=leadRest(text);
+  return '<div class="imp '+cls+'"><div class="imp-h"><span class="imp-ic"><svg class="i"><use href="#i-'+icon+'"/></svg></span>'+label+'</div>'+
+    '<div class="imp-t">'+(lr.lead?'<p class="lead">'+richText(lr.lead)+'</p>':'<p class="rest">Geen impact beschreven.</p>')+(lr.rest?'<p class="rest">'+richText(lr.rest)+'</p>':'')+'</div></div>';
+}
 
 function detailHead(it,a){
   const isRM=it.id.startsWith('RM'); const canRe=!!a&&!running();
@@ -562,8 +608,8 @@ function mcDetail(it,a){
     '</div></div>'+
     (a.oneLiner?sec('Samenvatting voor Planner <button class="btn sm" id="d-copy"><svg class="i"><use href="#i-copy"/></svg>Kopieer</button>','<p id="d-brief">'+escH(a.oneLiner)+'</p>','brief'):'')+
     (sc?sec('Waarom deze score','<div class="relev"><span class="score s'+sc+'">'+sc+'</span><div><div class="lbl">'+scoreLbl[sc]+'</div><p class="muted">'+escH(a.relevantieUitleg||'')+'</p></div></div>'):'')+
-    sec('Omschrijving wijziging','<p>'+escH(a.omschrijvingIntro||'')+'</p>'+(bullets.length?'<ul>'+bullets.map(b=>'<li>'+escH(b)+'</li>').join('')+'</ul>':'')+(a.omschrijvingSlot?'<p style="margin-top:8px">'+escH(a.omschrijvingSlot)+'</p>':''))+
-    sec('Impact','<div class="impact"><div><b>Organisatie</b><p>'+escH(a.impactOrganisaties||'')+'</p></div><div><b>Technisch</b><p>'+escH(a.impactTechnisch||'')+'</p></div><div><b>Functioneel</b><p>'+escH(a.impactFunctioneel||'')+'</p></div></div>')+
+    sec('Omschrijving wijziging','<p>'+richText(a.omschrijvingIntro)+'</p>'+(bullets.length?'<ul>'+bullets.map(b=>'<li>'+richText(b)+'</li>').join('')+'</ul>':'')+(a.omschrijvingSlot?'<p style="margin-top:8px">'+richText(a.omschrijvingSlot)+'</p>':''))+
+    sec('Impact','<div class="impact">'+impRow('org','org','Organisatie',a.impactOrganisaties)+impRow('tech','tech','Technisch',a.impactTechnisch)+impRow('func','func','Functioneel',a.impactFunctioneel)+'</div>')+
     (ad?sec('Admin-configuratie / uitschakelen <span class="hidenote">niet in de .docx</span>',adminBody,'admin'):'')+
     '<div id="d-imgs"></div>'+
     '<details class="sec"><summary>Documentgegevens (ook in de .docx)</summary><dl class="kv">'+
