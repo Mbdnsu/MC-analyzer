@@ -4,261 +4,383 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MC Analyzer</title>
+<script>
+// Thema zo vroeg mogelijk zetten (voorkomt een lichte flits bij dark mode).
+// Geen opgeslagen keuze = volgt de systeeminstelling.
+try{var t=localStorage.getItem('mc_theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}
+</script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
+/* Layout: one-screen app. Topbar (met tabs) > toolbar > status/selectiebalk > tabel | detailpaneel. */
 :root{
-  --dark:#0f1e2e;--dark2:#1a2f44;
-  --accent:#8b1e3f;--accent2:#6b1730;
-  --green:#107c10;--bg:#f0f4f8;--surface:#fff;--text:#1a2535;--muted:#5a6a7a;--border:#dde3eb;--row-hover:#f5f8fc;
+  --chrome:#0f1e2e; --chrome2:#1a2f44; --chrome-fg:#e8eef5; --chrome-muted:#a9b8c8;
+  --bg:#eef2f7; --surface:#ffffff; --surface2:#f6f8fb; --fg:#172233; --muted:#566577; --faint:#8492a3; --border:#dbe2ea;
+  --accent:#8b1e3f; --accent-fg:#ffffff; --accent-soft:color-mix(in srgb,var(--accent) 10%,var(--surface));
+  --ok:#157a3c; --ok-soft:#e3f4e8; --warn:#9a5b00; --warn-soft:#fdf1dc; --danger:#b42318; --danger-soft:#fdecea;
+  --info:#1d5b8f; --info-soft:#e4eef8; --violet:#5b3fa3; --violet-soft:#eeeafa;
+  --font:"Segoe UI",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+  --mono:Consolas,"Cascadia Mono","SFMono-Regular",Menlo,monospace;
+  --r:6px; color-scheme:light;
 }
-[data-theme="dark"]{
-  --bg:#0b1520;--surface:#111f2e;--text:#e4ebf2;--muted:#8ba0b5;--border:#22344a;--row-hover:#17293b;
-  --accent:#58a6ff;--accent2:#7cb8ff;
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --chrome:#08121c; --chrome2:#0e1c2a; --chrome-fg:#e4ebf2; --chrome-muted:#93a6ba;
+  --bg:#0b1520; --surface:#111f2e; --surface2:#15263a; --fg:#e4ebf2; --muted:#9fb1c4; --faint:#6f849a; --border:#22344a;
+  --accent:#58a6ff; --accent-fg:#06111c; --accent-soft:color-mix(in srgb,var(--accent) 14%,var(--surface));
+  --ok:#4ccf7d; --ok-soft:#10301f; --warn:#f0b04a; --warn-soft:#33260c; --danger:#ff7b72; --danger-soft:#3a1715;
+  --info:#7cb8ff; --info-soft:#132a42; --violet:#b69cff; --violet-soft:#241c3d; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --chrome:#08121c; --chrome2:#0e1c2a; --chrome-fg:#e4ebf2; --chrome-muted:#93a6ba;
+  --bg:#0b1520; --surface:#111f2e; --surface2:#15263a; --fg:#e4ebf2; --muted:#9fb1c4; --faint:#6f849a; --border:#22344a;
+  --accent:#58a6ff; --accent-fg:#06111c; --accent-soft:color-mix(in srgb,var(--accent) 14%,var(--surface));
+  --ok:#4ccf7d; --ok-soft:#10301f; --warn:#f0b04a; --warn-soft:#33260c; --danger:#ff7b72; --danger-soft:#3a1715;
+  --info:#7cb8ff; --info-soft:#132a42; --violet:#b69cff; --violet-soft:#241c3d; color-scheme:dark;
 }
-body{font-family:'Segoe UI',-apple-system,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
-.topbar{background:var(--dark);height:52px;display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0;border-bottom:2px solid var(--accent)}
-.tb-logo{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff}
-.tb-title{font-size:15px;font-weight:700;color:#fff}.tb-sep{color:rgba(255,255,255,0.2)}.tb-sub{font-size:12px;color:rgba(255,255,255,0.4)}
-.tb-right{margin-left:auto;display:flex;align-items:center;gap:10px}
-.toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap}
-.toolbar-left{display:flex;align-items:center;gap:10px;flex:1}
-.btn{padding:7px 16px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:none;display:flex;align-items:center;gap:6px;transition:opacity 0.15s,background 0.15s}
-.btn:disabled{opacity:0.45;cursor:not-allowed}
-.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover:not(:disabled){background:var(--accent2)}
-.btn-green{background:var(--green);color:#fff}.btn-green:hover:not(:disabled){opacity:0.88}
-.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}.btn-ghost:hover:not(:disabled){background:var(--row-hover);color:var(--text)}
-.filter-group{display:flex;align-items:center;gap:6px;margin-left:auto}
-.filter-label{font-size:12px;color:var(--muted);font-weight:500}
-select,input[type=text]{padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;color:var(--text);background:var(--surface);outline:none}
-.tabs-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;gap:8px;flex-shrink:0}
-.tab-btn{padding:7px 16px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
-.tab-btn:hover{background:var(--row-hover)}
-.tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-.split{flex:1;display:flex;overflow:hidden}
-.table-pane{display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--border)}
-.table-pane.full{width:100%}.table-pane.half{width:48%}
-.stats-bar{background:var(--dark2);padding:7px 18px;display:flex;align-items:center;gap:20px;flex-shrink:0}
-.stat{display:flex;align-items:center;gap:6px}.stat-num{font-size:18px;font-weight:700;color:#fff}
-.stat-lbl{font-size:11px;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.4px}
-.stat-sep{width:1px;height:28px;background:rgba(255,255,255,0.1)}
-.tbl-wrap{flex:1;overflow-y:auto}
-table{width:100%;border-collapse:collapse}
-thead{position:sticky;top:0;background:var(--surface);z-index:2}
-thead th{padding:9px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);border-bottom:2px solid var(--border);white-space:nowrap}
-tbody tr{cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.1s}
-tbody tr:hover{background:var(--row-hover)}
-tbody tr.selected{background:color-mix(in srgb, var(--accent) 10%, var(--surface));border-left:3px solid var(--accent)}
-tbody tr.is-new-item{background:color-mix(in srgb, var(--accent) 8%, var(--surface))}
-td{padding:10px 14px;font-size:13px;vertical-align:middle}
-.td-id{font-family:Consolas,monospace;font-size:12px;color:var(--muted);white-space:nowrap}
-.td-title{font-weight:500;line-height:1.4;max-width:280px}
-.td-svc{font-size:12px;color:var(--muted)}.td-date{font-size:12px;color:var(--muted);white-space:nowrap}
-.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap}
-.badge-new{background:#dff6dd;color:#107c10}
-.badge-done{background:color-mix(in srgb, var(--accent) 16%, white);color:var(--accent)}
-[data-theme="dark"] .badge-done{background:color-mix(in srgb, var(--accent) 22%, black);color:var(--accent)}
-.badge-proc{background:color-mix(in srgb, var(--accent) 15%, white);color:var(--accent)}
-.badge-nieuw-tag{background:color-mix(in srgb, var(--accent) 15%, white);color:var(--accent);margin-left:4px}
-.badge-openstaand{background:#f3f4f6;color:#6b7280}
-.badge-major{background:#fee2e2;color:#b91c1c;margin-left:4px}
-.badge-cat-plan{background:color-mix(in srgb, var(--accent) 15%, white);color:var(--accent)}.badge-cat-inform{background:#e0f2fe;color:#075985}.badge-cat-roadmap{background:#ede9fe;color:#5b21b6}
-[data-theme="dark"] .badge-proc,[data-theme="dark"] .badge-nieuw-tag,[data-theme="dark"] .badge-cat-plan{background:color-mix(in srgb, var(--accent) 22%, black);color:var(--accent)}
-.cb{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
-.detail-pane{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.detail-header{background:var(--surface);padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.detail-title{font-size:14px;font-weight:600}.detail-actions{display:flex;gap:8px}
-.detail-scroll{flex:1;overflow-y:auto;padding:20px}
-.preview-card{background:var(--surface);border-radius:8px;border:1px solid var(--border);padding:24px 28px;max-width:700px;box-shadow:0 1px 4px rgba(0,0,0,0.04)}
-.p-main-title{font-size:14px;font-weight:700;padding-bottom:12px;margin-bottom:16px;border-bottom:2px solid var(--accent)}
-.p-section{margin-bottom:14px}.p-lbl{font-size:12px;font-weight:700;margin-bottom:3px}
-.p-val{font-size:13px;line-height:1.65}.p-val a{color:var(--accent);text-decoration:none}
-.p-bullets{list-style:disc;padding-left:18px;margin:6px 0}.p-bullets li{font-size:13px;line-height:1.65;margin-bottom:3px}
-.p-divider{border:none;border-top:1px solid var(--border);margin:16px 0}
-.no-learn-note{font-size:12px;color:var(--muted);font-style:italic;margin-bottom:8px}
-.link-row{margin-bottom:10px}.link-row strong{font-size:13px;display:block;margin-bottom:2px}
-.relevantie-bar{display:flex;align-items:center;gap:10px;background:var(--row-hover);border-radius:8px;padding:10px 14px;margin-bottom:16px}
-.admin-box{background:var(--row-hover);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:14px 16px;margin-top:14px}
-.admin-box-guess{border-style:dashed;border-left-style:solid}
-.admin-box-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--accent);margin-bottom:2px}
-.admin-box-note{font-size:11px;color:var(--muted);font-style:italic;margin-bottom:10px}
-.admin-guess-warn{font-size:12px;color:#92400e;background:#fef3c7;border-radius:6px;padding:6px 10px;margin-bottom:10px;line-height:1.5}
-[data-theme="dark"] .admin-guess-warn{color:#fcd34d;background:#3a2c0a}
-.admin-steps{padding-left:18px;margin:6px 0 0}.admin-steps li{font-size:13px;line-height:1.7}
-.admin-loc{font-size:13px;font-weight:600;margin-bottom:2px}
-.one-liner-box{background:color-mix(in srgb, var(--accent) 8%, var(--surface));border-left:3px solid var(--accent);border-radius:6px;padding:10px 14px;margin-bottom:16px}
-.empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
-.empty-icon{width:60px;height:60px;background:var(--border);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px}
-.empty-t{font-size:15px;font-weight:500;color:var(--muted)}.empty-s{font-size:13px;color:var(--muted);opacity:.7;text-align:center;max-width:260px;line-height:1.5}
-.progress-bar-wrap{background:rgba(255,255,255,0.2);border-radius:4px;height:6px;overflow:hidden;margin-top:6px}
-.progress-bar-fill{height:100%;background:#fff;border-radius:4px;transition:width 0.3s}
-.spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,0.35);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;display:inline-block}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:13px;overflow:hidden}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+svg.i{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+.app{height:100%;display:grid;grid-template-rows:auto auto auto 1fr}
+
+/* Topbar met tabs */
+.top{background:var(--chrome);color:var(--chrome-fg);display:flex;align-items:center;gap:18px;padding:0 16px;height:50px;border-bottom:2px solid var(--accent)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;white-space:nowrap}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-size:11px;font-weight:800;letter-spacing:.3px}
+.tabs{display:flex;gap:2px;height:100%;min-width:0;overflow-x:auto}
+.tab{background:none;border:0;border-bottom:3px solid transparent;color:var(--chrome-muted);padding:0 12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap;margin-bottom:-2px}
+.tab:hover{color:var(--chrome-fg)}
+.tab[aria-selected="true"]{color:var(--chrome-fg);border-bottom-color:var(--accent)}
+.tab .n{font-variant-numeric:tabular-nums;font-size:11px;padding:1px 7px;border-radius:10px;background:color-mix(in srgb,var(--chrome-fg) 12%,transparent)}
+.top-r{margin-left:auto;display:flex;gap:4px;align-items:center}
+.ibtn{background:none;border:0;color:var(--chrome-muted);width:32px;height:32px;border-radius:var(--r);display:grid;place-items:center;cursor:pointer}
+.ibtn:hover{background:color-mix(in srgb,var(--chrome-fg) 10%,transparent);color:var(--chrome-fg)}
+
+/* Toolbar */
+.tools{background:var(--surface);border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 16px}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:var(--r);border:1px solid var(--border);background:var(--surface);font-weight:600;cursor:pointer;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--surface2)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.primary:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 88%,black)}
+.btn.sm{height:28px;padding:0 10px;font-size:12px}
+.split-btn{display:inline-flex;position:relative}
+.split-btn .btn:first-child{border-top-right-radius:0;border-bottom-right-radius:0}
+.split-btn .btn.caret{border-top-left-radius:0;border-bottom-left-radius:0;border-left:0;padding:0 8px}
+.menu{position:absolute;top:36px;left:0;z-index:20;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px;min-width:250px}
+.menu button{display:flex;justify-content:space-between;gap:16px;width:100%;background:none;border:0;padding:8px 10px;border-radius:5px;cursor:pointer;text-align:left}
+.menu button:hover,.menu button:focus-visible{background:var(--surface2)}
+.menu button:disabled{opacity:.45;cursor:not-allowed}
+.menu .cnt{color:var(--muted);font-variant-numeric:tabular-nums}
+.search{position:relative;flex:1 1 220px;max-width:340px;min-width:160px}
+.search svg{position:absolute;left:9px;top:8px;color:var(--faint)}
+.search input{width:100%;height:32px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);padding:0 30px 0 30px}
+.kbd{position:absolute;right:7px;top:7px;font-family:var(--mono);font-size:10.5px;color:var(--faint);border:1px solid var(--border);border-radius:4px;padding:0 5px;line-height:16px}
+.filters{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.filters select{height:32px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);padding:0 8px;max-width:200px}
+.spinner{width:13px;height:13px;border:2px solid color-mix(in srgb,currentColor 35%,transparent);border-top-color:currentColor;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
-.new-banner{background:color-mix(in srgb, var(--accent) 12%, var(--surface));border:1px solid var(--accent);border-radius:8px;padding:10px 16px;margin:12px 16px;font-size:13px;color:var(--accent);display:none;align-items:center;gap:8px}
-[data-theme="dark"] .new-banner{background:color-mix(in srgb, var(--accent) 18%, black)}
-.err-banner{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:10px 16px;margin:12px 16px 0;font-size:12px;display:none;max-height:160px;overflow-y:auto}
-.err-banner ul{padding-left:18px}.err-banner li{margin-bottom:2px;word-break:break-word}
-[data-theme="dark"] .err-banner{background:#3a1212;border-color:#7f1d1d;color:#fecaca}
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;display:flex;align-items:center;justify-content:center}
-.modal{background:var(--surface);border-radius:12px;padding:32px 36px;width:500px;box-shadow:0 8px 40px rgba(0,0,0,0.18)}
-.modal-title{font-size:17px;font-weight:700;margin-bottom:20px}.form-row{margin-bottom:16px}
-.form-row label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:5px}
-.form-row input,.form-row select{width:100%;padding:8px 11px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;outline:none;background:var(--surface);color:var(--text)}
-.form-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent)}
-.form-row input[type=password]{font-family:Consolas,monospace;letter-spacing:1px}
-.modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
-.hint{font-size:11px;color:var(--muted);margin-top:4px}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--dark);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:200;opacity:0;transition:opacity 0.2s;pointer-events:none}
+
+/* Status-/selectiebalk (zelfde plek, wisselt) */
+.bar{background:var(--chrome2);color:var(--chrome-fg);min-height:40px;display:flex;align-items:center;gap:4px;padding:0 10px;flex-wrap:wrap}
+.stat{background:none;border:0;border-radius:5px;padding:5px 10px;display:flex;align-items:baseline;gap:6px;cursor:pointer;color:var(--chrome-fg)}
+.stat:hover{background:color-mix(in srgb,var(--chrome-fg) 8%,transparent)}
+.stat[aria-pressed="true"]{background:color-mix(in srgb,var(--chrome-fg) 14%,transparent)}
+.stat b{font-size:16px;font-variant-numeric:tabular-nums}
+.stat span{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--chrome-muted)}
+.stat .dot{align-self:center}
+.bar-r{margin-left:auto;display:flex;align-items:center;gap:10px;color:var(--chrome-muted);font-size:11.5px}
+.prog{display:flex;align-items:center;gap:10px;min-width:280px}
+.prog-track{flex:1;height:6px;border-radius:3px;background:color-mix(in srgb,var(--chrome-fg) 16%,transparent);overflow:hidden;min-width:80px}
+.prog-fill{height:100%;background:var(--accent);width:0;transition:width .4s}
+.bar .ghost{background:transparent;color:var(--chrome-fg);border-color:color-mix(in srgb,var(--chrome-fg) 30%,transparent)}
+.bar .ghost:hover:not(:disabled){background:color-mix(in srgb,var(--chrome-fg) 10%,transparent)}
+.bar.sel{background:var(--accent);color:var(--accent-fg)}
+.bar.sel .selcount{font-weight:700;padding:0 8px}
+.bar.sel .btn{background:transparent;border-color:color-mix(in srgb,var(--accent-fg) 40%,transparent);color:var(--accent-fg)}
+.bar.sel .btn:hover:not(:disabled){background:color-mix(in srgb,var(--accent-fg) 12%,transparent)}
+
+/* Main */
+.main{display:grid;grid-template-columns:1fr;min-height:0;position:relative}
+.main.open{grid-template-columns:minmax(360px,42%) 1fr}
+.list{min-height:0;overflow:auto;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.errbox{margin:10px 12px 0;border:1px solid color-mix(in srgb,var(--danger) 35%,transparent);background:var(--danger-soft);color:var(--danger);border-radius:8px;padding:9px 12px;font-size:12px;max-height:180px;overflow:auto}
+.errbox header{display:flex;justify-content:space-between;align-items:center;font-weight:700;margin-bottom:4px}
+.errbox ul{margin:0;padding-left:18px}.errbox li{color:var(--fg);overflow-wrap:anywhere}
+.errbox button{background:none;border:0;color:var(--danger);cursor:pointer;font-weight:600}
+table{width:100%;border-collapse:collapse}
+thead th{position:sticky;top:0;z-index:2;background:var(--surface);text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:700;padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+thead th.sortable{cursor:pointer}
+thead th.sortable:hover{color:var(--fg)}
+tbody tr{border-bottom:1px solid var(--border);cursor:pointer}
+tbody tr:hover{background:var(--surface2)}
+tbody tr.cur{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+tbody tr.kb{outline:2px solid color-mix(in srgb,var(--accent) 60%,transparent);outline-offset:-2px}
+td{padding:9px 10px;vertical-align:top}
+td.cbc{width:38px;padding:0}
+td.cbc label{display:flex;align-items:flex-start;justify-content:center;padding:11px 10px;cursor:pointer;height:100%}
+td.cbc input,th input{width:15px;height:15px;accent-color:var(--accent);margin:0;cursor:pointer}
+.idc{white-space:nowrap;font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px;padding-top:1px}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block}
+.dot.new{background:var(--ok)}
+.dot.open{border:1.5px solid var(--faint)}
+.dot.done{background:var(--accent)}
+.dot.proc{background:var(--warn);animation:pulse 1s infinite}
+.dot.err{background:var(--danger)}
+@keyframes pulse{50%{opacity:.35}}
+.ttl{font-weight:600;line-height:1.4}
+.ttl .t{display:block}
+.main.open .ttl .t{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.tag{font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:9px;white-space:nowrap}
+.tag.plan{background:var(--warn-soft);color:var(--warn)}
+.tag.inform{background:var(--info-soft);color:var(--info)}
+.tag.roadmap{background:var(--violet-soft);color:var(--violet)}
+.tag.major{border:1px solid color-mix(in srgb,var(--danger) 45%,transparent);color:var(--danger)}
+.muted{color:var(--muted)}
+.svc,.date{color:var(--muted);font-size:12px}
+.date{white-space:nowrap;font-variant-numeric:tabular-nums}
+.pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.pill.new{background:var(--ok-soft);color:var(--ok)}
+.pill.open{background:var(--surface2);color:var(--muted);border:1px solid var(--border)}
+.pill.done{background:var(--accent-soft);color:var(--accent)}
+.pill.proc{background:var(--warn-soft);color:var(--warn)}
+.pill.err{background:var(--danger-soft);color:var(--danger)}
+.score{display:inline-grid;place-items:center;width:24px;height:22px;border-radius:5px;font-weight:700;font-size:12px;font-variant-numeric:tabular-nums}
+.score.s0{color:var(--faint)}
+.score.s1,.score.s2{background:var(--surface2);color:var(--muted);border:1px solid var(--border)}
+.score.s3{background:color-mix(in srgb,var(--accent) 16%,var(--surface));color:var(--accent)}
+.score.s4{background:color-mix(in srgb,var(--accent) 55%,var(--surface));color:var(--accent-fg)}
+.score.s5{background:var(--accent);color:var(--accent-fg)}
+.main.open .col-svc,.main.open .col-date,.main.open .col-st{display:none}
+.empty{padding:56px 24px;text-align:center;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px}
+.empty b{color:var(--fg);font-size:14px}
+.kbhint{padding:10px 14px;color:var(--faint);font-size:11.5px;border-top:1px solid var(--border);margin-top:auto;display:flex;gap:14px;flex-wrap:wrap}
+.kbhint kbd{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);border-radius:4px;padding:0 5px}
+
+/* Detail */
+.detail{min-height:0;overflow:auto;background:var(--bg)}
+.dhead{position:sticky;top:0;z-index:3;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:8px 14px}
+.dhead .id{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap}
+.dhead .dt{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.dhead .acts{display:flex;gap:6px;flex:none}
+.dhead .x{background:none;border:0;width:28px;height:28px;border-radius:5px;display:grid;place-items:center;cursor:pointer;color:var(--muted)}
+.dhead .x:hover{background:var(--surface2);color:var(--fg)}
+.dbody{max-width:760px;padding:18px 20px 40px;display:flex;flex-direction:column;gap:16px}
+.h1{font-size:19px;font-weight:700;line-height:1.3;text-wrap:balance;margin:0}
+.orig{color:var(--muted);font-size:12px;margin-top:3px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:3px 10px;font-size:12px;max-width:100%}
+.chip b{font-weight:600;overflow:hidden;text-overflow:ellipsis}
+.chip .k{color:var(--muted);flex:none}
+.chip.major{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+.sec{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
+.sec h3{margin:0 0 8px;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sec p{margin:0;line-height:1.65;max-width:68ch}
+.sec p + p{margin-top:8px}
+.sec ul{margin:8px 0 0;padding-left:18px;line-height:1.65}
+.brief{border-color:color-mix(in srgb,var(--accent) 35%,var(--border));background:var(--accent-soft)}
+.brief p{font-size:14px;white-space:pre-line}
+.relev{display:flex;gap:12px;align-items:flex-start}
+.relev .score{width:34px;height:30px;font-size:15px;flex:none}
+.relev .lbl{font-weight:600;margin-bottom:2px}
+.impact{display:grid;gap:12px}
+.impact b{display:block;font-size:12px;margin-bottom:2px}
+.admin .where{font-weight:600;margin-bottom:6px;font-family:var(--mono);font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:6px 9px;overflow-x:auto;white-space:nowrap}
+.admin ol{margin:6px 0 0;padding-left:20px;line-height:1.7}
+.admin .src{font-size:11.5px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.admin .roles{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--muted)}
+.admin .note{margin-top:8px}
+.role{background:var(--info-soft);color:var(--info);font-weight:600;border-radius:9px;padding:1px 8px;font-size:11.5px}
+.warnline{background:var(--warn-soft);color:var(--warn);border-radius:5px;padding:6px 9px;font-size:12px;margin-bottom:8px}
+.hidenote{font-size:11px;color:var(--faint);font-style:italic;text-transform:none;letter-spacing:0;font-weight:400}
+details.sec summary{cursor:pointer;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:700;list-style:none;display:flex;justify-content:space-between}
+details.sec summary::-webkit-details-marker{display:none}
+details.sec summary::after{content:"Tonen";text-transform:none;letter-spacing:0;font-weight:600;color:var(--accent)}
+details.sec[open] summary::after{content:"Verbergen"}
+details.sec[open] summary{margin-bottom:10px}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:6px 14px;font-size:12.5px;margin:0}
+.kv dt{color:var(--muted)}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+a{color:var(--accent)}
+.quote{border-left:3px solid var(--accent);background:var(--surface2);padding:10px 12px;border-radius:0 6px 6px 0;line-height:1.6;font-size:13.5px;overflow-wrap:anywhere}
+.note{font-size:11.5px;color:var(--faint)}
+.pending{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.imgs a{display:flex;align-items:center;gap:6px;margin-bottom:4px;text-decoration:none}
+
+/* Modals */
+.overlay{position:fixed;inset:0;background:rgba(5,12,20,.5);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 24px;width:min(500px,100%);max-height:calc(100% - 32px);overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.25)}
+.modal h2{margin:0 0 16px;font-size:16px}
+.frow{margin-bottom:14px}
+.frow label{display:block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:5px}
+.frow input,.frow select{width:100%;height:34px;padding:0 10px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface)}
+.frow input[type=password]{font-family:var(--mono);letter-spacing:1px}
+.hint{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.45}
+.mfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.ugrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.ucell{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.ucell .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:700}
+.ucell .v{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px}
+.ucell .s{font-size:11.5px;color:var(--muted)}
+
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--chrome);color:var(--chrome-fg);padding:9px 16px;border-radius:8px;font-size:12.5px;z-index:60;opacity:0;transition:opacity .2s;pointer-events:none;max-width:calc(100vw - 32px)}
+.toast.err{background:var(--danger);color:#fff}
 .toast.show{opacity:1}
+
+@media (max-width:760px){
+  body{overflow-x:hidden;overflow-y:auto}
+  .app{height:auto;min-height:100%}
+  .top{gap:8px;padding:0 10px}
+  .brand .nm,#btn-usage{display:none}
+  .tabs{flex:1}
+  .tab{padding:0 8px;font-size:12.5px}
+  .top-r{flex:none;margin-left:0}
+  .tools{padding:8px 12px}
+  .search{max-width:none;flex-basis:100%;order:3;min-width:0}
+  .filters{margin-left:0;order:4;width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .filters select{width:100%;max-width:none;min-width:0}
+  .bar-r{display:none}
+  .bar.sel .bar-r,.bar.running .bar-r{display:flex;width:100%;margin-left:0;padding-bottom:6px}
+  .prog{min-width:0;width:100%}
+  .stat{padding:5px 7px}
+  .main,.main.open{grid-template-columns:1fr}
+  .col-svc,.col-date,.col-st{display:none}
+  .list{overflow:visible;border-right:0}
+  .ttl{overflow-wrap:anywhere}
+  table{table-layout:fixed}
+  thead th:nth-child(1){width:38px}
+  thead th:nth-child(2){width:98px}
+  thead th:nth-child(6){width:52px}
+  .idc{font-size:11px}
+  .kbhint{display:none}
+  .detail{position:fixed;inset:0;z-index:25}
+  .kv{grid-template-columns:1fr}
+  .ugrid{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <div class="tb-logo">MC</div>
-  <div class="tb-title">MC Analyzer</div>
-  <div class="tb-sep">|</div>
-  <div class="tb-sub">Microsoft 365 Message Center Analyse Tool</div>
-  <div class="tb-right">
-    <button class="btn btn-ghost" onclick="openUsage()" id="usageBtn" style="color:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.2);padding:5px 12px;font-size:12px">&#128202; Gebruik</button>
-    <button class="btn btn-ghost" onclick="toggleTheme()" id="themeBtn" style="color:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.2);padding:5px 12px;font-size:12px">&#9789; Thema</button>
-    <button class="btn btn-ghost" onclick="openSettings()" style="color:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.2);padding:5px 12px;font-size:12px">&#9881; Instellingen</button>
-  </div>
-</div>
-<div class="tabs-bar">
-  <button class="tab-btn active" id="tabMcBtn" onclick="switchTab('mc')">Message Center <span id="tabMcCount">(0)</span></button>
-  <button class="tab-btn" id="tabRoadmapBtn" onclick="switchTab('roadmap')">Roadmap <span id="tabRoadmapCount">(0)</span></button>
-</div>
-<div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-  <div class="toolbar">
-    <div class="toolbar-left">
-      <button class="btn btn-primary" onclick="fetchItems()" id="fetchBtn">&#8635; Items ophalen</button>
-      <button class="btn btn-green" onclick="analyzeSelected()" id="analyzeBtn" disabled>&#9654; Analyseer geselecteerde</button>
-      <button class="btn btn-green" onclick="analyzeAll()" id="analyzeAllBtn" disabled>&#9654;&#9654; Analyseer nieuwe</button>
-      <button class="btn btn-ghost" onclick="analyzeAllUnanalyzed()" id="analyzeUnanalyzedBtn" disabled>&#9654; Analyseer alle ongeanalyseerd</button>
-      <button class="btn btn-ghost" onclick="downloadSelectedZip()" id="dlZipBtn" disabled>&#8595; Download ZIP</button>
-      <button class="btn btn-ghost" onclick="resetAnalysis()" id="resetBtn" style="display:none;color:#c50f1f;border-color:#fecaca">&#9632; Stop</button>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5l11 7-11 7z"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></symbol>
+  <symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/></symbol>
+</svg>
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><div class="logo">MC</div><span class="nm">MC Analyzer</span></div>
+    <nav class="tabs" role="tablist" aria-label="Bron">
+      <button class="tab" role="tab" aria-selected="true" data-tab="mc">Message Center <span class="n" id="n-mc">0</span></button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="roadmap">Roadmap <span class="n" id="n-roadmap">0</span></button>
+    </nav>
+    <div class="top-r">
+      <button class="ibtn" id="btn-usage" title="Claude-gebruik" aria-label="Claude-gebruik"><svg class="i"><use href="#i-chart"/></svg></button>
+      <button class="ibtn" id="btn-theme" title="Thema wisselen" aria-label="Thema wisselen"><svg class="i"><use href="#i-moon"/></svg></button>
+      <button class="ibtn" id="btn-settings" title="Instellingen" aria-label="Instellingen"><svg class="i"><use href="#i-gear"/></svg></button>
     </div>
-    <div style="display:flex;align-items:center;gap:6px;margin-right:10px">
-      <input type="text" id="searchInput" placeholder="Zoek op ID of titel..." oninput="renderTable()" style="width:240px">
-    </div>
-    <div class="filter-group">
-      <span class="filter-label">Filter:</span>
-      <select id="statusFilter" onchange="renderTable()">
-        <option value="all" selected>Alle items</option>
-        <option value="isNew">Alleen nieuw</option>
-        <option value="new">Openstaand</option>
-        <option value="done">Geanalyseerd</option>
-      </select>
-      <select id="scoreFilter" onchange="renderTable()">
-        <option value="all">Alle scores</option>
-        <option value="5">Score 5</option>
-        <option value="4">Score 4+</option>
-        <option value="3">Score 3+</option>
-      </select>
-      <select id="serviceFilter" onchange="renderTable()"><option value="all">Alle services</option></select>
-    </div>
-  </div>
-  <div class="new-banner" id="newBanner">
-    <span>&#11088;</span><span id="newBannerText"></span>
-  </div>
-  <div class="err-banner" id="errBanner">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <strong id="errBannerTitle">Fouten in de laatste run</strong>
-      <button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="document.getElementById('errBanner').style.display='none'">&#10005; Sluiten</button>
-    </div>
-    <ul id="errList"></ul>
-  </div>
-  <div class="split">
-    <div class="table-pane full" id="tablePane">
-      <div class="stats-bar">
-        <div class="stat"><span class="stat-num" id="statTotal">0</span><span class="stat-lbl">Totaal</span></div>
-        <div class="stat-sep"></div>
-        <div class="stat"><span class="stat-num" id="statNew">0</span><span class="stat-lbl">Nieuw</span></div>
-        <div class="stat-sep"></div>
-        <div class="stat"><span class="stat-num" id="statOpen">0</span><span class="stat-lbl">Openstaand</span></div>
-        <div class="stat-sep"></div>
-        <div class="stat"><span class="stat-num" id="statDone">0</span><span class="stat-lbl">Geanalyseerd</span></div>
-        <div class="stat-sep"></div>
-        <div class="stat"><span class="stat-num" id="statSel">0</span><span class="stat-lbl">Geselecteerd</span></div>
-        <div id="progressWrap" style="margin-left:auto;min-width:220px;display:none">
-          <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:3px" id="progressLbl">Analyseren...</div>
-          <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressFill" style="width:0%"></div></div>
-        </div>
-      </div>
-      <div class="tbl-wrap">
-        <div class="empty" id="tableEmpty">
-          <div class="empty-icon">&#128230;</div>
-          <div class="empty-t">Nog geen items geladen</div>
-          <div class="empty-s">Klik op "Items ophalen" om recente Message Center en Roadmap items te laden</div>
-        </div>
-        <table id="itemTable" style="display:none">
-          <thead><tr>
-            <th style="width:32px"><input type="checkbox" class="cb" id="selectAll" onchange="toggleSelectAll(this)"></th>
-            <th>ID</th><th>Titel</th><th>Service</th><th>Bijgewerkt</th><th>Score</th><th>Status</th>
-          </tr></thead>
-          <tbody id="itemBody"></tbody>
-        </table>
+  </header>
+
+  <div class="tools">
+    <button class="btn primary" id="btn-fetch"><svg class="i"><use href="#i-refresh"/></svg><span>Items ophalen</span></button>
+    <div class="split-btn" id="analyze-wrap">
+      <button class="btn" id="btn-analyze-new" disabled><svg class="i"><use href="#i-play"/></svg><span id="lbl-analyze">Analyseer nieuwe</span></button>
+      <button class="btn caret" id="btn-analyze-menu" aria-haspopup="true" aria-expanded="false" aria-label="Meer analyse-opties"><svg class="i"><use href="#i-down"/></svg></button>
+      <div class="menu" id="analyze-menu" hidden role="menu">
+        <button role="menuitem" data-run="new">Nieuwe items <span class="cnt" id="m-new">0</span></button>
+        <button role="menuitem" data-run="open">Alle ongeanalyseerde <span class="cnt" id="m-open">0</span></button>
+        <button role="menuitem" data-run="sel">Geselecteerde <span class="cnt" id="m-sel">0</span></button>
       </div>
     </div>
-    <div class="detail-pane" id="detailPane" style="display:none">
-      <div class="detail-header">
-        <div class="detail-title" id="detailTitle">Selecteer een item</div>
-        <div class="detail-actions">
-          <button class="btn btn-ghost" id="reanalyzeBtn" onclick="reanalyzeSingle()" disabled style="font-size:12px;padding:5px 12px">&#8635; Heranalyseer</button>
-          <button class="btn btn-green" id="dlSingleBtn" onclick="downloadSingle()" disabled style="font-size:12px;padding:5px 12px">&#8595; Download .docx</button>
-          <button class="btn btn-ghost" onclick="closeDetail()" style="font-size:12px;padding:5px 12px">&#10005; Sluiten</button>
-        </div>
-      </div>
-      <div class="detail-scroll" id="detailScroll">
-        <div class="empty"><div class="empty-icon">&#128269;</div><div class="empty-t">Selecteer een geanalyseerd item</div></div>
-      </div>
+    <div class="search">
+      <svg class="i"><use href="#i-search"/></svg>
+      <input id="q" type="text" placeholder="Zoek op ID of titel" aria-label="Zoeken" autocomplete="off">
+      <span class="kbd">/</span>
+    </div>
+    <div class="filters">
+      <select id="f-status" aria-label="Status"><option value="all">Alle statussen</option><option value="new">Nieuw</option><option value="open">Openstaand</option><option value="done">Geanalyseerd</option></select>
+      <select id="f-score" aria-label="Score"><option value="0">Alle scores</option><option value="5">Score 5</option><option value="4">Score 4+</option><option value="3">Score 3+</option></select>
+      <select id="f-svc" aria-label="Service"><option value="all">Alle services</option></select>
     </div>
   </div>
-</div>
-<div class="modal-overlay" id="settingsModal" style="display:none" onclick="if(event.target===this)closeSettings()">
-  <div class="modal">
-    <div class="modal-title">&#9881; Instellingen</div>
-    <div class="form-row"><label>App-token</label><input type="password" id="settingsAppToken" placeholder="Zelfde waarde als APP_TOKEN in Railway"><div class="hint">Vereist zodra APP_TOKEN op de server is gezet. Wordt opgeslagen in je browser.</div></div>
-    <div class="form-row"><label>Anthropic API Key (optioneel)</label><input type="password" id="settingsApiKey" placeholder="sk-ant-api03-..."><div class="hint">Leeg laten = de server gebruikt ANTHROPIC_API_KEY uit Railway (aanbevolen, dan staat de key niet in je browser).</div></div>
-    <div class="form-row"><label>Aantal Message Center items ophalen</label>
-      <select id="settingsCount"><option value="25">Laatste 25</option><option value="50">Laatste 50</option><option value="100">Laatste 100</option><option value="200" selected>Laatste 200</option><option value="300">Laatste 300</option><option value="500">Laatste 500</option></select></div>
-    <div class="form-row"><label>Aantal Roadmap items ophalen</label>
-      <select id="settingsRoadmapCount"><option value="25">Laatste 25</option><option value="50">Laatste 50</option><option value="100" selected>Laatste 100</option><option value="150">Laatste 150</option><option value="200">Laatste 200</option></select>
-      <div class="hint">mc.merill.net toont maar een klein live venster roadmap-items; de tool vult dat aan met zijn eigen opgebouwde archief. Bij minder dan gevraagd krijg je gewoon minder terug.</div></div>
-    <div class="form-row"><label>Teams Webhook URL (optioneel)</label>
-      <input type="text" id="settingsWebhook" placeholder="https://...logic.azure.com/... (Workflows)">
-      <div class="hint">Power Automate Workflows-webhook. Leeg laten = TEAMS_WEBHOOK_URL uit Railway (indien gezet).</div></div>
-    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeSettings()">Annuleren</button><button class="btn btn-primary" onclick="saveSettings()">Opslaan</button></div>
+
+  <div class="bar" id="bar"></div>
+
+  <div class="main" id="main">
+    <section class="list" aria-label="Items">
+      <div id="errbox"></div>
+      <table id="tbl" hidden>
+        <thead><tr>
+          <th style="width:38px"><label style="display:flex;justify-content:center"><input type="checkbox" id="cb-all" aria-label="Alles selecteren"></label></th>
+          <th>ID</th><th>Titel</th><th class="col-svc">Service</th><th class="col-date sortable" id="th-date">Bijgewerkt</th><th class="sortable" id="th-score">Score</th><th class="col-st">Status</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="empty" class="empty"><b>Nog geen items geladen</b><span>Klik op "Items ophalen" om de recente Message Center- en Roadmap-items te laden.</span></div>
+      <div class="kbhint"><span><kbd>↑</kbd> <kbd>↓</kbd> navigeren</span><span><kbd>Enter</kbd> openen</span><span><kbd>Spatie</kbd> selecteren</span><span><kbd>Esc</kbd> sluiten</span><span><kbd>/</kbd> zoeken</span></div>
+    </section>
+    <section class="detail" id="detail" hidden aria-label="Detail"></section>
   </div>
 </div>
-<div class="modal-overlay" id="usageModal" style="display:none" onclick="if(event.target===this)closeUsage()">
-  <div class="modal">
-    <div class="modal-title">&#128202; Claude-gebruik</div>
-    <div id="usageBody" style="font-size:13px;color:var(--muted)">Laden...</div>
-    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeUsage()">Sluiten</button></div>
+
+<div class="overlay" id="settings" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="set-h">
+    <h2 id="set-h">Instellingen</h2>
+    <div class="frow"><label for="s-token">App-token</label><input type="password" id="s-token" placeholder="Zelfde waarde als APP_TOKEN in Railway" autocomplete="off"><div class="hint">Vereist zodra APP_TOKEN op de server is gezet. Wordt opgeslagen in deze browser.</div></div>
+    <div class="frow"><label for="s-key">Anthropic API key (optioneel)</label><input type="password" id="s-key" placeholder="sk-ant-api03-..." autocomplete="off"><div class="hint">Leeg laten = de server gebruikt ANTHROPIC_API_KEY uit Railway. Aanbevolen, dan staat de key niet in je browser.</div></div>
+    <div class="frow"><label for="s-count">Aantal Message Center-items</label>
+      <select id="s-count"><option value="25">Laatste 25</option><option value="50">Laatste 50</option><option value="100">Laatste 100</option><option value="200">Laatste 200</option><option value="300">Laatste 300</option><option value="500">Laatste 500</option></select></div>
+    <div class="frow"><label for="s-rmcount">Aantal Roadmap-items</label>
+      <select id="s-rmcount"><option value="25">Laatste 25</option><option value="50">Laatste 50</option><option value="100">Laatste 100</option><option value="150">Laatste 150</option><option value="200">Laatste 200</option></select>
+      <div class="hint">mc.merill.net toont maar een klein live venster roadmap-items; de tool vult dat aan met zijn eigen archief. Zijn er minder dan gevraagd, dan krijg je er minder.</div></div>
+    <div class="frow"><label for="s-hook">Teams-webhook (optioneel)</label><input type="text" id="s-hook" placeholder="https://...logic.azure.com/... (Workflows)" autocomplete="off"><div class="hint">Power Automate Workflows-webhook. Leeg laten = TEAMS_WEBHOOK_URL uit Railway, als die gezet is.</div></div>
+    <div class="mfoot"><button class="btn" id="s-cancel">Annuleren</button><button class="btn primary" id="s-save">Opslaan</button></div>
   </div>
 </div>
-<div class="toast" id="toast"></div>
+
+<div class="overlay" id="usage" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="use-h">
+    <h2 id="use-h">Claude-gebruik</h2>
+    <div id="usage-body" class="muted">Laden...</div>
+    <div class="mfoot"><button class="btn" id="u-close">Sluiten</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
 <script>
-let state={activeTab:'mc', mc:[], roadmap:[]};
-let selectedId=null, pollTimer=null;
-// Selectie leeft los van de DOM: renderTable() bouwt de tabel elke poll opnieuw op en
-// wiste daardoor voorheen alle aangevinkte checkboxes midden in een run.
-const selectedIds=new Set();
+(function(){
+"use strict";
+// ─── Staat ───────────────────────────────────────────────────────────────────
+// Selectie leeft los van de DOM, zodat die de 2-seconden-poll overleeft.
+const S={tab:'mc', mc:[], roadmap:[], sel:new Set(), open:null, openSt:null, kb:-1,
+  q:'', fst:'all', fsc:0, fsvc:'all', sort:'date', errIds:new Set(), errors:[],
+  prog:null, fetchedAt:null};
+let pollTimer=null, pollBusy=false;
 
-function activeItems(){ return state[state.activeTab]; }
-function allTrackedItems(){ return state.mc.concat(state.roadmap); }
+const $=id=>document.getElementById(id);
+const items=()=>S[S.tab];
+const allItems=()=>S.mc.concat(S.roadmap);
+const stLabel={new:'Nieuw',open:'Openstaand',done:'Geanalyseerd',proc:'Bezig',err:'Fout'};
 
-// ─── Helpers: escaping, URL's, API ────────────────────────────────────────────
-// escH escapet nu ook quotes zodat het veilig is in attributen (href/title/data-*).
+// ─── Helpers: escaping, URL's, opslag, API ──────────────────────────────────
 function escH(s){if(s===null||s===undefined)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 // Alleen http(s) doorlaten: blokkeert javascript:/data: links uit Claude- of bron-output.
 function safeUrl(u){if(!u||typeof u!=='string')return null;const t=u.trim();return /^https?:\/\//i.test(t)?t:null;}
-function linkHtml(u,label,style){const s=safeUrl(u);if(!s)return escH(label||u||'');return '<a href="'+escH(s)+'" target="_blank" rel="noopener noreferrer"'+(style?' style="'+style+'"':'')+'>'+escH(label||s)+'</a>';}
-
+function linkHtml(u,label){const s=safeUrl(u);if(!s)return '<span class="muted">'+escH(label||'niet van toepassing')+'</span>';return '<a href="'+escH(s)+'" target="_blank" rel="noopener noreferrer">'+escH(label||s)+'</a>';}
 function lsGet(k){try{return localStorage.getItem(k)||'';}catch(e){return '';}}
 function lsSet(k,v){try{if(v)localStorage.setItem(k,v);else localStorage.removeItem(k);}catch(e){}}
 
-// Eén fetch-wrapper: stuurt X-App-Token mee en vangt 401 centraal af.
 async function api(path,opts={}){
   const headers=Object.assign({},opts.headers||{});
   const tok=lsGet('mc_app_token');
@@ -273,438 +395,370 @@ async function api(path,opts={}){
 }
 async function apiJson(path,opts){const r=await api(path,opts);return r.json();}
 
-function applyTheme(t){
-  document.documentElement.setAttribute('data-theme', t);
-  lsSet('mc_theme', t);
-}
-function toggleTheme(){
-  const cur = document.documentElement.getAttribute('data-theme') || 'light';
-  applyTheme(cur === 'dark' ? 'light' : 'dark');
-}
-(function initTheme(){ applyTheme(lsGet('mc_theme') || 'light'); })();
+let tt;
+function toast(m,err){const t=$('toast');t.textContent=m;t.classList.toggle('err',!!err);t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),err?6000:3000);}
 
-// Bij (her)laden: loopt er nog een run op de server (bv. gestart door de planner of
-// vanaf een ander tabblad), dan de voortgang weer oppakken i.p.v. een 'dode' UI.
-window.addEventListener('load', async () => {
-  try{
-    const p=await apiJson('/api/progress');
-    if(p.running) startPolling();
-  }catch(e){}
-});
+// Eén status per item (i.p.v. roze rij + badge + banner + statuskolom).
+function stOf(i){
+  if(i.status==='processing') return 'proc';
+  if(i.status==='done') return 'done';
+  if(S.errIds.has(i.id)) return 'err';
+  return i.isNew?'new':'open';
+}
+function catOf(i){return i.type==='roadmap'?'roadmap':i.category==='planForChange'?'plan':i.category==='stayInformed'?'inform':'';}
+function scoreOf(i){const n=parseInt(i.relevantieSCore,10);return n>=1&&n<=5?n:0;}
 
-function applySummaryToItems(summary){
-  for(const item of allTrackedItems()){
-    const s=summary[item.id];
-    if(s){
-      item.status='done';
-      item.relevantieSCore=s.relevantieSCore||null;
-      item.analyzedTitle=s.title||null;
-    }
+function visible(){
+  const q=S.q.toLowerCase();
+  let list=items().filter(i=>{
+    const st=stOf(i);
+    if(S.fst==='new'&&st!=='new') return false;
+    if(S.fst==='open'&&!(st==='open'||st==='err')) return false;
+    if(S.fst==='done'&&st!=='done') return false;
+    if(S.fsc&&!(scoreOf(i)>=S.fsc)) return false;
+    if(S.fsvc!=='all'&&i.service!==S.fsvc) return false;
+    if(q&&!(i.id.toLowerCase().includes(q)||(i.title||'').toLowerCase().includes(q)||(i.analyzedTitle||'').toLowerCase().includes(q))) return false;
+    return true;
+  });
+  // Server levert al gesorteerd op datum; score-sortering is stabiel binnen dezelfde score.
+  if(S.sort==='score') list=list.map((x,k)=>[x,k]).sort((a,b)=>(scoreOf(b[0])-scoreOf(a[0]))||(a[1]-b[1])).map(x=>x[0]);
+  return list;
+}
+function selIds(){const ids=new Set(items().map(i=>i.id));return [...S.sel].filter(id=>ids.has(id));}
+function running(){return !!(S.prog&&S.prog.running);}
+
+// ─── Render: tellers, balk, tabel, fouten ───────────────────────────────────
+function renderCounts(){
+  $('n-mc').textContent=S.mc.length; $('n-roadmap').textContent=S.roadmap.length;
+  const L=items();
+  const nNew=L.filter(i=>stOf(i)==='new').length, nOpen=L.filter(i=>i.status!=='done'&&i.status!=='processing').length, nSel=selIds().length;
+  $('m-new').textContent=nNew; $('m-open').textContent=nOpen; $('m-sel').textContent=nSel;
+  $('lbl-analyze').textContent='Analyseer nieuwe ('+nNew+')';
+  $('btn-analyze-new').disabled=running()||nNew===0;
+  $('btn-analyze-menu').disabled=running()||L.length===0;
+  document.querySelector('[data-run="new"]').disabled=nNew===0;
+  document.querySelector('[data-run="open"]').disabled=nOpen===0;
+  document.querySelector('[data-run="sel"]').disabled=nSel===0;
+}
+
+function renderBar(){
+  const bar=$('bar'); const n=selIds().length; const L=items();
+  if(n>0&&!running()){
+    bar.className='bar sel';
+    const dl=selIds().filter(id=>!id.startsWith('RM')&&(L.find(i=>i.id===id)||{}).status==='done').length;
+    bar.innerHTML='<span class="selcount">'+n+' geselecteerd</span>'+
+      '<button class="btn sm" id="sel-analyze"><svg class="i"><use href="#i-play"/></svg>Analyseer</button>'+
+      (S.tab==='mc'?'<button class="btn sm" id="sel-zip"'+(dl?'':' disabled')+'><svg class="i"><use href="#i-dl"/></svg>Download ZIP ('+dl+')</button>':'')+
+      '<div class="bar-r"><button class="btn sm" id="sel-clear">Selectie wissen</button></div>';
+    $('sel-analyze').onclick=()=>startAnalysis(L.filter(i=>S.sel.has(i.id)),false);
+    if($('sel-zip')) $('sel-zip').onclick=downloadSelectedZip;
+    $('sel-clear').onclick=()=>{S.sel.clear();render();};
+    return;
   }
-}
-
-function switchTab(tab){
-  state.activeTab = tab;
-  document.getElementById('tabMcBtn').classList.toggle('active', tab==='mc');
-  document.getElementById('tabRoadmapBtn').classList.toggle('active', tab==='roadmap');
-  document.getElementById('searchInput').value='';
-  closeDetail();
-  populateServiceFilter(); renderTable(); updateStats(); updateSelCount();
-}
-
-function updateTabCounts(){
-  document.getElementById('tabMcCount').textContent = '('+state.mc.length+')';
-  document.getElementById('tabRoadmapCount').textContent = '('+state.roadmap.length+')';
-}
-
-function fmtNum(n){ return (n||0).toLocaleString('nl-NL'); }
-
-async function openUsage(){
-  document.getElementById('usageModal').style.display='flex';
-  document.getElementById('usageBody').textContent='Laden...';
-  try{
-    const data=await apiJson('/api/usage-summary');
-    if(!data.ok) throw new Error('kon gebruik niet laden');
-    const t=data.usage.totaal||{}, w=data.usage.laatste_7_dagen||{};
-    const cacheRead=t.cache_read_input_tokens||0;
-    document.getElementById('usageBody').innerHTML=
-      '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Laatste 7 dagen</div>'+
-      '<div>Analyses: <strong>'+fmtNum(w.analyses)+'</strong></div>'+
-      '<div>Input tokens: <strong>'+fmtNum(w.input_tokens)+'</strong> | Output tokens: <strong>'+fmtNum(w.output_tokens)+'</strong></div>'+
-      '<div>Web searches: <strong>'+fmtNum(w.web_search_requests)+'</strong></div></div>'+
-      '<div><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Totaal (sinds deze versie)</div>'+
-      '<div>Analyses: <strong>'+fmtNum(t.analyses)+'</strong></div>'+
-      '<div>Input tokens: <strong>'+fmtNum(t.input_tokens)+'</strong> | Output tokens: <strong>'+fmtNum(t.output_tokens)+'</strong></div>'+
-      '<div>Cache-read tokens: <strong>'+fmtNum(cacheRead)+'</strong> <span style="font-size:11px">(90% goedkoper dankzij prompt caching)</span></div>'+
-      '<div>Web searches: <strong>'+fmtNum(t.web_search_requests)+'</strong> <span style="font-size:11px">(~$0,01 per search)</span></div></div>'+
-      '<div style="font-size:11px;color:var(--muted);margin-top:12px;font-style:italic">Exacte kosten via je Anthropic Console (Usage-tab) - dit zijn ruwe tellingen, geen facturatiecijfers.</div>';
-  }catch(e){
-    document.getElementById('usageBody').innerHTML='<span style="color:#c50f1f">Fout bij laden: '+escH(e.message)+'</span>';
+  bar.className='bar'+(running()?' running':'');
+  const c={all:L.length,new:0,open:0,done:0};
+  L.forEach(i=>{const s=stOf(i);if(s==='new')c.new++;else if(s==='done')c.done++;else if(s==='open'||s==='err')c.open++;});
+  const st=(k,lbl,dot)=>'<button class="stat" data-f="'+k+'" aria-pressed="'+(S.fst===k)+'">'+(dot?'<span class="dot '+dot+'"></span>':'')+'<b>'+c[k]+'</b><span>'+lbl+'</span></button>';
+  let right='';
+  if(running()){
+    const p=S.prog; const pct=p.total>0?Math.round(p.done/p.total*100):0;
+    right='<div class="prog"><span>Analyseren '+p.done+'/'+p.total+(p.current?': '+escH(p.current):'')+'</span><div class="prog-track"><div class="prog-fill" style="width:'+pct+'%"></div></div><button class="btn sm ghost" id="btn-stop">Stop</button></div>';
+  } else if(S.fetchedAt){
+    right='<span>Opgehaald om '+S.fetchedAt+'</span>';
   }
-}
-function closeUsage(){document.getElementById('usageModal').style.display='none';}
-
-function openSettings() {
-  document.getElementById('settingsAppToken').value=lsGet('mc_app_token');
-  document.getElementById('settingsApiKey').value=lsGet('mc_api_key');
-  document.getElementById('settingsCount').value=lsGet('mc_count')||'200';
-  document.getElementById('settingsRoadmapCount').value=lsGet('mc_roadmap_count')||'100';
-  document.getElementById('settingsWebhook').value=lsGet('mc_webhook');
-  document.getElementById('settingsModal').style.display='flex';
-}
-function closeSettings(){document.getElementById('settingsModal').style.display='none';}
-function saveSettings(){
-  // Lege velden wissen de opgeslagen waarde nu echt (eerder werden ze genegeerd, waardoor
-  // je een oude key/webhook nooit meer kwijtraakte).
-  const w=document.getElementById('settingsWebhook').value.trim();
-  if(w && !/^https:\/\//i.test(w)){toast('Webhook URL moet met https:// beginnen',true);return;}
-  lsSet('mc_app_token',document.getElementById('settingsAppToken').value.trim());
-  lsSet('mc_api_key',document.getElementById('settingsApiKey').value.trim());
-  lsSet('mc_count',document.getElementById('settingsCount').value);
-  lsSet('mc_roadmap_count',document.getElementById('settingsRoadmapCount').value);
-  lsSet('mc_webhook',w);
-  closeSettings(); toast('Instellingen opgeslagen');
+  bar.innerHTML=st('all','Totaal')+st('new','Nieuw','new')+st('open','Openstaand','open')+st('done','Geanalyseerd','done')+'<div class="bar-r">'+right+'</div>';
+  bar.querySelectorAll('.stat').forEach(b=>b.onclick=()=>{S.fst=b.dataset.f;$('f-status').value=S.fst;S.kb=-1;render();});
+  if($('btn-stop')) $('btn-stop').onclick=stopAnalysis;
 }
 
-async function fetchItems(){
-  const btn=document.getElementById('fetchBtn');
-  btn.disabled=true; btn.innerHTML='<div class="spinner"></div>&nbsp;Ophalen...';
-  try{
-    const mcCount=lsGet('mc_count')||200;
-    const rmCount=lsGet('mc_roadmap_count')||100;
-    const [mcData, rmData] = await Promise.all([
-      apiJson('/api/items?type=mc&count='+encodeURIComponent(mcCount)),
-      apiJson('/api/items?type=roadmap&count='+encodeURIComponent(rmCount))
-    ]);
-    if(!mcData.ok) throw new Error(mcData.error);
-    if(!rmData.ok) throw new Error(rmData.error);
-    state.mc = mcData.items;
-    state.roadmap = rmData.items;
-    // Selectie opschonen: ids die niet meer in de lijst staan eruit.
-    const known=new Set(allTrackedItems().map(i=>i.id));
-    for(const id of [...selectedIds]) if(!known.has(id)) selectedIds.delete(id);
-    updateTabCounts();
-    const newCount = (mcData.newCount||0) + (rmData.newCount||0);
-    const newItems = allTrackedItems().filter(i=>i.isNew);
-    if(newItems.length>0){
-      document.getElementById('newBannerText').textContent=newItems.length+' nieuwe items sinds je laatste bezoek';
-      document.getElementById('newBanner').style.display='flex';
+function renderRows(){
+  const L=visible(); const has=items().length>0;
+  $('tbl').hidden=!has||L.length===0;
+  const empty=$('empty');
+  empty.hidden=has&&L.length>0;
+  empty.innerHTML=has?'<b>Geen items voor deze filters</b><span>Pas de zoekterm of filters aan.</span>':'<b>Nog geen items geladen</b><span>Klik op "Items ophalen" om de recente Message Center- en Roadmap-items te laden.</span>';
+  $('rows').innerHTML=L.map((i,idx)=>{
+    const st=stOf(i), cat=catOf(i), sc=scoreOf(i);
+    const tags=[];
+    if(cat==='plan') tags.push('<span class="tag plan">Plan for Change</span>');
+    if(cat==='inform') tags.push('<span class="tag inform">Stay Informed</span>');
+    if(cat==='roadmap') tags.push('<span class="tag roadmap">Roadmap</span>');
+    if(i.isMajorChange) tags.push('<span class="tag major">Major</span>');
+    // Overzicht toont altijd de originele Engelse titel van mc.merill.net.
+    return '<tr data-id="'+escH(i.id)+'" class="'+(S.open===i.id?'cur ':'')+(S.kb===idx?'kb':'')+'">'+
+      '<td class="cbc"><label><input type="checkbox" data-cb="'+escH(i.id)+'"'+(S.sel.has(i.id)?' checked':'')+' aria-label="Selecteer '+escH(i.id)+'"></label></td>'+
+      '<td><span class="idc"><span class="dot '+st+'" title="'+stLabel[st]+'"></span>'+escH(i.id)+'</span></td>'+
+      '<td class="ttl"><span class="t">'+escH(i.title)+'</span>'+(tags.length?'<span class="tags">'+tags.join('')+'</span>':'')+'</td>'+
+      '<td class="col-svc svc">'+escH(i.service)+'</td>'+
+      '<td class="col-date date">'+escH(i.lastUpdated)+'</td>'+
+      '<td>'+(cat==='roadmap'?'<span class="score s0" title="Roadmap-items krijgen geen score">·</span>':'<span class="score s'+sc+'" title="'+(sc?'Relevantie '+sc+'/5':'Nog geen score')+'">'+(sc||'–')+'</span>')+'</td>'+
+      '<td class="col-st"><span class="pill '+st+'">'+stLabel[st]+'</span></td></tr>';
+  }).join('');
+  const all=$('cb-all'); all.checked=L.length>0&&L.every(i=>S.sel.has(i.id)); all.indeterminate=!all.checked&&L.some(i=>S.sel.has(i.id));
+  $('th-score').textContent='Score'+(S.sort==='score'?' ↓':'');
+  $('th-date').textContent='Bijgewerkt'+(S.sort==='date'?' ↓':'');
+}
+
+function renderErrors(){
+  const b=$('errbox');
+  if(!S.errors.length){b.innerHTML='';return;}
+  b.innerHTML='<div class="errbox"><header><span>'+S.errors.length+' fout'+(S.errors.length>1?'en':'')+' in de laatste run</span><button id="err-x">Sluiten</button></header><ul>'+S.errors.map(e=>'<li>'+escH(e)+'</li>').join('')+'</ul></div>';
+  $('err-x').onclick=()=>{S.errors=[];renderErrors();};
+}
+
+function renderSvc(){
+  const sel=$('f-svc'); const cur=S.fsvc;
+  const svcs=[...new Set(items().map(i=>i.service).filter(Boolean))].sort();
+  sel.innerHTML='<option value="all">Alle services</option>'+svcs.map(s=>'<option'+(s===cur?' selected':'')+'>'+escH(s)+'</option>').join('');
+  if(!svcs.includes(cur)){S.fsvc='all';sel.value='all';}
+}
+
+function render(){renderCounts();renderBar();renderRows();renderErrors();}
+
+// ─── Detailpaneel ───────────────────────────────────────────────────────────
+const scoreLbl=['','Nauwelijks relevant','Beperkt relevant','Gemiddeld relevant','Relevant','Zeer relevant'];
+function sec(title,body,cls){return '<section class="sec '+(cls||'')+'"><h3>'+title+'</h3>'+body+'</section>';}
+function asList(v){return Array.isArray(v)?v:(v?[v]:[]);}
+
+function detailHead(it,a){
+  const isRM=it.id.startsWith('RM'); const canRe=!!a&&!running();
+  return '<div class="dhead"><span class="id">'+escH(it.id)+'</span><span class="dt">'+escH((a&&a.title)||it.title)+'</span><div class="acts">'+
+    (a?'<button class="btn sm" id="d-re"'+(canRe?'':' disabled')+'><svg class="i"><use href="#i-refresh"/></svg>Heranalyseer</button>':'')+
+    (!isRM&&a?'<button class="btn sm primary" id="d-dl"><svg class="i"><use href="#i-dl"/></svg>.docx</button>':'')+
+    '</div><button class="x" id="d-x" aria-label="Sluiten"><svg class="i"><use href="#i-x"/></svg></button></div>';
+}
+
+function baseChips(it){
+  return '<span class="chip"><span class="k">Service</span><b>'+escH(it.service||'onbekend')+'</b></span>'+
+    '<span class="chip"><span class="k">Bijgewerkt</span><b>'+escH(it.lastUpdated||'')+'</b></span>'+
+    (it.isMajorChange?'<span class="chip major"><b>Major change</b></span>':'');
+}
+
+function mcDetail(it,a){
+  const sc=scoreOf(a); const ad=a.adminConfig;
+  const plan=asList(a.planning); const bullets=asList(a.omschrijvingBullets);
+  let adminBody='';
+  if(ad){
+    if(!ad.mogelijk){
+      adminBody='<p class="muted">'+escH(ad.toelichting||'Geen admin-instelling gevonden om deze feature te configureren of uit te schakelen.')+'</p>';
     } else {
-      document.getElementById('newBanner').style.display='none';
+      const guess=ad.bron==='algemene kennis';
+      adminBody=(guess?'<div class="warnline">Geschat op basis van algemene kennis. Verifieer in het beheercentrum voordat je dit in een RFC opneemt.</div>':
+          '<div class="src">'+(ad.bron==='webzoekopdracht'?'Gevonden via websearch'+(safeUrl(ad.bronUrl)?' · '+linkHtml(ad.bronUrl,'bron'):''):'Vermeld in het bericht')+'</div>')+
+        (ad.locatie?'<div class="where">'+escH(ad.locatie)+'</div>':'')+
+        (asList(ad.stappen).length?'<ol>'+asList(ad.stappen).map(s=>'<li>'+escH(s)+'</li>').join('')+'</ol>':'')+
+        (asList(ad.rollen).length?'<div class="roles">Benodigde rol '+asList(ad.rollen).map(r=>'<span class="role">'+escH(r)+'</span>').join('')+'</div>':'')+
+        (ad.toelichting&&!guess?'<p class="note">'+escH(ad.toelichting)+'</p>':'');
     }
-    populateServiceFilter(); renderTable(); updateStats(); updateSelCount();
-    document.getElementById('analyzeAllBtn').disabled=false;
-    document.getElementById('analyzeUnanalyzedBtn').disabled=false;
-    toast((state.mc.length+state.roadmap.length)+' items geladen'+(newCount>0?', '+newCount+' nieuw':''));
-  }catch(e){toast('Fout: '+e.message,true);}
-  finally{btn.disabled=false; btn.innerHTML='&#8635; Items ophalen';}
-}
-
-function populateServiceFilter(){
-  const sel=document.getElementById('serviceFilter');
-  const svcs=[...new Set(activeItems().map(i=>i.service).filter(Boolean))].sort();
-  sel.innerHTML='<option value="all">Alle services</option>';
-  svcs.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o);});
-}
-
-function scoreStars(score){
-  score=parseInt(score,10);
-  if(!(score>=1&&score<=5)) return '<span style="color:var(--muted);opacity:.5;font-size:11px">-</span>';
-  const colors=['','#ef4444','#f97316','#eab308','#22c55e','#0078d4'];
-  return '<span style="color:'+colors[score]+';font-weight:700;font-size:13px">'+'★'.repeat(score)+'☆'.repeat(5-score)+'</span>';
-}
-
-function categoryBadge(item){
-  if(item.type==='roadmap') return '<span class="badge badge-cat-roadmap">Roadmap</span>';
-  if(item.category==='planForChange') return '<span class="badge badge-cat-plan">Plan for Change</span>';
-  if(item.category==='stayInformed') return '<span class="badge badge-cat-inform">Stay Informed</span>';
-  return '';
-}
-
-function renderTable(){
-  const sf=document.getElementById('statusFilter').value;
-  const svf=document.getElementById('serviceFilter').value;
-  const scf=document.getElementById('scoreFilter').value;
-  const search=document.getElementById('searchInput').value.trim().toLowerCase();
-  const body=document.getElementById('itemBody'); body.innerHTML='';
-  const visible=activeItems().filter(i=>{
-    const statusOk=sf==='all'||(sf==='isNew'&&i.isNew&&i.status!=='done')||(sf==='new'&&!i.isNew&&i.status!=='done')||i.status===sf;
-    const svcOk=svf==='all'||i.service===svf;
-    const scoreOk=scf==='all'||!i.relevantieSCore||i.relevantieSCore>=parseInt(scf);
-    const searchOk=!search||i.id.toLowerCase().includes(search)||(i.title||'').toLowerCase().includes(search)||(i.analyzedTitle||'').toLowerCase().includes(search);
-    return statusOk&&svcOk&&scoreOk&&searchOk;
-  });
-  if(!visible.length){document.getElementById('itemTable').style.display='none';document.getElementById('tableEmpty').style.display='flex';updateStats();return;}
-  document.getElementById('tableEmpty').style.display='none';document.getElementById('itemTable').style.display='table';
-  visible.forEach(item=>{
-    const tr=document.createElement('tr');
-    if(item.id===selectedId) tr.classList.add('selected');
-    if(item.isNew) tr.classList.add('is-new-item');
-    const badge=item.status==='done'?'<span class="badge badge-done">&#10003; Gereed</span>':
-                item.status==='processing'?'<span class="badge badge-proc">Bezig</span>':
-                item.isNew?'<span class="badge badge-new">&#9679; Nieuw</span>':
-                '<span class="badge badge-openstaand">&#9675; Openstaand</span>';
-    const newTag=item.isNew?'<span class="badge badge-nieuw-tag">Nieuw!</span>':'';
-    const majorTag=item.isMajorChange?'<span class="badge badge-major">Major</span>':'';
-    // Overzicht toont altijd de originele Engelse titel van mc.merill.net, ook na analyse.
-    tr.innerHTML='<td><input type="checkbox" class="cb item-cb" data-id="'+escH(item.id)+'"'+(selectedIds.has(item.id)?' checked':'')+'></td>'+
-      '<td class="td-id">'+escH(item.id)+'</td>'+
-      '<td class="td-title">'+escH(item.title)+' '+categoryBadge(item)+newTag+majorTag+'</td>'+
-      '<td class="td-svc">'+escH(item.service)+'</td>'+
-      '<td class="td-date">'+escH(item.lastUpdated)+'</td>'+
-      '<td>'+scoreStars(item.relevantieSCore)+'</td>'+
-      '<td>'+badge+'</td>';
-    const cb=tr.querySelector('.item-cb');
-    cb.addEventListener('change',()=>{if(cb.checked)selectedIds.add(item.id);else selectedIds.delete(item.id);updateSelCount();});
-    tr.addEventListener('click',e=>{if(e.target.type==='checkbox')return;selectItem(item.id);});
-    body.appendChild(tr);
-  });
-  const allCb=document.getElementById('selectAll');
-  allCb.checked=visible.length>0&&visible.every(i=>selectedIds.has(i.id));
-  updateStats();
-}
-
-function toggleSelectAll(cb){
-  document.querySelectorAll('.item-cb').forEach(c=>{c.checked=cb.checked;if(cb.checked)selectedIds.add(c.dataset.id);else selectedIds.delete(c.dataset.id);});
-  updateSelCount();
-}
-function getSelectedIds(){const ids=new Set(activeItems().map(i=>i.id));return [...selectedIds].filter(id=>ids.has(id));}
-function updateSelCount(){
-  const n=getSelectedIds().length;
-  document.getElementById('statSel').textContent=n;
-  document.getElementById('analyzeBtn').disabled=n===0;
-  document.getElementById('dlZipBtn').disabled=n===0;
-}
-function updateStats(){
-  const list=activeItems();
-  document.getElementById('statTotal').textContent=list.length;
-  document.getElementById('statDone').textContent=list.filter(i=>i.status==='done').length;
-  document.getElementById('statNew').textContent=list.filter(i=>i.isNew&&i.status!=='done').length;
-  document.getElementById('statOpen').textContent=list.filter(i=>!i.isNew&&i.status!=='done').length;
-  updateTabCounts();
-}
-
-// Alleen voor de webweergave - wordt bewust niet meegenomen in de gedownloade .docx (zie build_docx in app.py).
-function buildAdminConfigHtml(ac){
-  if(!ac) return '';
-  if(!ac.mogelijk){
-    return '<div class="admin-box"><div class="admin-box-title">&#9881; Admin configuratie / uitschakelen</div>'+
-      '<div class="admin-box-note">Alleen zichtbaar hier, niet in het gedownloade document</div>'+
-      '<div style="font-size:13px;color:var(--muted)">'+escH(ac.toelichting||'Geen admin-instelling gevonden om deze feature te configureren of uit te schakelen.')+'</div></div>';
   }
-  const stepsHtml=(Array.isArray(ac.stappen)?ac.stappen:[]).map(s=>'<li>'+escH(s)+'</li>').join('');
-  const rollen=Array.isArray(ac.rollen)?ac.rollen:[];
-  const rolesHtml=rollen.length?'<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Benodigde RBAC-rol</div>'+
-    rollen.map(r=>'<span class="badge badge-cat-inform" style="margin-right:4px">'+escH(r)+'</span>').join('')+'</div>':'';
-  const isGuess=ac.bron==='algemene kennis';
-  const isSearched=ac.bron==='webzoekopdracht';
-  let bronHtml='';
-  if(isGuess){
-    bronHtml='<div class="admin-guess-warn">&#9888; Gebaseerd op algemene kennis, niet expliciet vermeld in dit bericht - verifieer in het beheercentrum voor je dit in een RFC verwerkt</div>';
-  } else if(isSearched){
-    const bu=safeUrl(ac.bronUrl);
-    bronHtml='<div style="font-size:11px;color:var(--muted);margin-bottom:6px">&#128269; Gevonden via websearch'+(bu?' - '+linkHtml(bu,'bron','color:var(--accent)'):'')+'</div>';
-  } else if(ac.bron){
-    bronHtml='<div style="font-size:11px;color:var(--muted);margin-bottom:6px">&#10003; Vermeld in het bericht</div>';
-  }
-  return '<div class="admin-box'+(isGuess?' admin-box-guess':'')+'"><div class="admin-box-title">&#9881; Admin configuratie / uitschakelen</div>'+
-    '<div class="admin-box-note">Alleen zichtbaar hier, niet in het gedownloade document</div>'+
-    bronHtml+
-    (ac.locatie?'<div class="admin-loc">'+escH(ac.locatie)+'</div>':'')+
-    (stepsHtml?'<ol class="admin-steps">'+stepsHtml+'</ol>':'')+
-    rolesHtml+
-    (ac.toelichting&&!isGuess?'<div style="font-size:12px;color:var(--muted);margin-top:8px">'+escH(ac.toelichting)+'</div>':'')+
-    '</div>';
+  const links=asList(a.links);
+  return '<div class="dbody">'+
+    '<div><h2 class="h1">'+escH(a.title||it.title)+'</h2>'+(a.title&&a.title!==it.title?'<div class="orig">'+escH(it.title)+'</div>':'')+
+    '<div class="chips">'+
+      (sc?'<span class="chip"><span class="score s'+sc+'" style="width:20px;height:18px;font-size:11px">'+sc+'</span><b>'+scoreLbl[sc]+'</b></span>':'')+
+      (a.platform?'<span class="chip"><span class="k">Platform</span><b>'+escH(a.platform)+'</b></span>':'')+
+      (plan.length?'<span class="chip"><span class="k">Planning</span><b>'+escH(plan[0])+'</b></span>':'')+
+      (it.isMajorChange?'<span class="chip major"><b>Major change</b></span>':'')+
+    '</div></div>'+
+    (a.oneLiner?sec('Samenvatting voor Planner <button class="btn sm" id="d-copy"><svg class="i"><use href="#i-copy"/></svg>Kopieer</button>','<p id="d-brief">'+escH(a.oneLiner)+'</p>','brief'):'')+
+    (sc?sec('Waarom deze score','<div class="relev"><span class="score s'+sc+'">'+sc+'</span><div><div class="lbl">'+scoreLbl[sc]+'</div><p class="muted">'+escH(a.relevantieUitleg||'')+'</p></div></div>'):'')+
+    sec('Omschrijving wijziging','<p>'+escH(a.omschrijvingIntro||'')+'</p>'+(bullets.length?'<ul>'+bullets.map(b=>'<li>'+escH(b)+'</li>').join('')+'</ul>':'')+(a.omschrijvingSlot?'<p style="margin-top:8px">'+escH(a.omschrijvingSlot)+'</p>':''))+
+    sec('Impact','<div class="impact"><div><b>Organisatie</b><p>'+escH(a.impactOrganisaties||'')+'</p></div><div><b>Technisch</b><p>'+escH(a.impactTechnisch||'')+'</p></div><div><b>Functioneel</b><p>'+escH(a.impactFunctioneel||'')+'</p></div></div>')+
+    (ad?sec('Admin-configuratie / uitschakelen <span class="hidenote">niet in de .docx</span>',adminBody,'admin'):'')+
+    '<div id="d-imgs"></div>'+
+    '<details class="sec"><summary>Documentgegevens (ook in de .docx)</summary><dl class="kv">'+
+      '<dt>Roadmap ID</dt><dd>'+escH(a.roadmapId||'niet van toepassing')+'</dd>'+
+      '<dt>Roadmap-link</dt><dd>'+linkHtml(a.roadmapUrl)+'</dd>'+
+      '<dt>Teams-taak</dt><dd>Planner - '+escH(a.title||it.title)+'</dd>'+
+      '<dt>Volledige planning</dt><dd>'+(plan.length?plan.map(escH).join('<br>'):'<span class="muted">onbekend</span>')+'</dd>'+
+      '<dt>Links</dt><dd>'+(a.geenSpecifiekeLearnPagina?'<span class="muted">Geen specifieke Microsoft Learn-pagina gevonden.</span>'+(links.length?'<br>':''):'')+
+        (links.length?links.map(l=>escH(l&&l.label)+': '+(safeUrl(l&&l.url)?linkHtml(l.url):'<span class="muted">Microsoft Message Center</span>')).join('<br>'):(a.geenSpecifiekeLearnPagina?'':'<span class="muted">geen</span>'))+'</dd>'+
+    '</dl></details>'+
+  '</div>';
 }
 
-function buildPreviewHtml(a){
-  const score=parseInt(a.relevantieSCore,10)||0;
-  const scoreColors=['','#ef4444','#f97316','#eab308','#22c55e','#0078d4'];
-  const scoreLabels=['','Nauwelijks relevant','Beperkt relevant','Gemiddeld relevant','Relevant','Zeer relevant'];
-  const scoreHtml=(score>=1&&score<=5)?'<div class="relevantie-bar"><div style="font-size:22px;font-weight:800;color:'+scoreColors[score]+'">'+'★'.repeat(score)+'☆'.repeat(5-score)+'</div><div><div style="font-size:12px;color:var(--muted)">'+scoreLabels[score]+' ('+score+'/5)</div><div style="font-size:13px;color:var(--text);margin-top:2px">'+escH(a.relevantieUitleg||'')+'</div></div></div>':'';
-  // Kopieertekst via data-attribuut i.p.v. een inline JS-string: geen escape-gepuzzel meer
-  // en geen manier om met een " of ' in Claude's tekst uit het attribuut te breken.
-  const oneLinerHtml=a.oneLiner?'<div class="one-liner-box"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:4px">Samenvatting voor Planner</div><div style="font-size:13px;line-height:1.7;white-space:pre-line">'+escH(a.oneLiner)+'</div><button data-txt="'+escH(a.oneLiner)+'" onclick="copyOneLiner(this.dataset.txt)" style="margin-top:8px;padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">&#128203; Kopieer</button></div>':'';
-  const planArr=Array.isArray(a.planning)?a.planning:(a.planning?[a.planning]:[]);
-  const planHtml=planArr.map(escH).join('<br>');
-  const bullArr=Array.isArray(a.omschrijvingBullets)?a.omschrijvingBullets:(a.omschrijvingBullets?[a.omschrijvingBullets]:[]);
-  const bullHtml=bullArr.length?'<ul class="p-bullets">'+bullArr.map(b=>'<li>'+escH(b)+'</li>').join('')+'</ul>':'';
-  let linksHtml='';
-  if(a.geenSpecifiekeLearnPagina) linksHtml+='<p class="no-learn-note">Geen specifieke Microsoft Learn-pagina gevonden. Hieronder de meest relevante officiële bronnen.</p>';
-  (Array.isArray(a.links)?a.links:[]).forEach(l=>{
-    const u=safeUrl(l&&l.url);
-    linksHtml+='<div class="link-row"><strong>'+escH(l&&l.label)+':</strong>'+(u?linkHtml(u,u,'font-size:13px'):'<span style="font-size:13px;color:var(--muted)">Microsoft Message Center</span>')+'</div>';
-  });
-  const rmUrl=safeUrl(a.roadmapUrl);
-  const adminHtml=buildAdminConfigHtml(a.adminConfig);
-  return '<div class="preview-card">'+scoreHtml+oneLinerHtml+
-    '<div id="images-'+escH(a.mcId||'')+'" style="margin-bottom:8px"></div>'+
-    '<div class="p-main-title">'+escH(a.title)+'</div>'+
-    '<div class="p-section"><div class="p-lbl">Platform:</div><div class="p-val">'+escH(a.platform)+'</div></div>'+
-    '<div class="p-section"><div class="p-lbl">Link naar Microsoft:</div><div class="p-val">Roadmap ID: '+escH(a.roadmapId||'niet van toepassing')+(rmUrl?'<br>'+linkHtml(rmUrl):'')+'</div></div>'+
-    '<div class="p-section"><div class="p-lbl">Link naar Teams taak:</div><div class="p-val">Planner - '+escH(a.title||'')+'</div></div>'+
-    '<div class="p-section"><div class="p-lbl">Planning:</div><div class="p-val">'+planHtml+'</div></div>'+
-    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Omschrijving wijziging:</div><div class="p-val">'+escH(a.omschrijvingIntro)+'</div>'+bullHtml+(a.omschrijvingSlot?'<div class="p-val" style="margin-top:8px">'+escH(a.omschrijvingSlot)+'</div>':'')+'</div>'+
-    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Impactanalyse:</div><div class="p-val"><strong>Impact voor organisaties:</strong> '+escH(a.impactOrganisaties)+'<br><br><strong>Technische impact:</strong> '+escH(a.impactTechnisch)+'<br><br><strong>Functionele impact:</strong> '+escH(a.impactFunctioneel)+'</div>'+adminHtml+'</div>'+
-    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Links:</div><div class="p-val">'+linksHtml+'</div></div></div>';
+function rmDetail(it,a){
+  return '<div class="dbody">'+
+    '<div><h2 class="h1">'+escH(a.title||it.title)+'</h2><div class="chips">'+baseChips(it)+
+      (safeUrl(a.roadmapUrl)?'<span class="chip">'+linkHtml(a.roadmapUrl,'Bekijk op mc.merill.net')+'</span>':'')+'</div></div>'+
+    sec('Letterlijke tekst (mc.merill.net)','<div class="quote">'+escH(a.summaryRaw||'(geen summary beschikbaar)')+'</div>')+
+    sec('Wat dit inhoudt','<p>'+escH(a.omschrijving||'')+'</p>')+
+    sec('Waar op letten','<p>'+escH(a.waarOpLetten||'')+'</p>')+
+    sec('Gerelateerd MC-bericht',a.gerelateerdMcId?'<p><span class="role" style="margin-right:6px">'+escH(a.gerelateerdMcId)+'</span>'+escH(a.mcRelatieUitleg||'')+'</p>':'<p class="muted">'+escH(a.mcRelatieUitleg||'Geen gerelateerd MC-bericht gevonden.')+'</p>')+
+    '<p class="note">Roadmap-items krijgen geen impactanalyse en geen document.</p>'+
+  '</div>';
 }
 
-function buildRoadmapPreviewHtml(a){
-  const catHtml=a.category?'<div class="p-section"><div class="p-lbl">Status/categorie:</div><div class="p-val">'+escH(a.category)+'</div></div>':'';
-  const mcRelHtml=a.gerelateerdMcId?
-    '<div class="p-val"><span class="badge badge-cat-inform" style="margin-right:6px">'+escH(a.gerelateerdMcId)+'</span>'+escH(a.mcRelatieUitleg||'')+'</div>':
-    '<div class="p-val" style="color:var(--muted)">'+escH(a.mcRelatieUitleg||'Geen gerelateerd MC-bericht gevonden.')+'</div>';
-  const rmUrl=safeUrl(a.roadmapUrl);
-  return '<div class="preview-card">'+
-    '<div class="p-main-title">'+escH(a.title)+' <span class="badge badge-cat-roadmap" style="margin-left:6px">Roadmap</span></div>'+
-    '<div class="p-section"><div class="p-lbl">Service:</div><div class="p-val">'+escH(a.service||'')+'</div></div>'+
-    catHtml+
-    '<div class="p-section"><div class="p-lbl">Roadmap link:</div><div class="p-val">'+(rmUrl?linkHtml(rmUrl):'niet beschikbaar')+'</div></div>'+
-    '<hr class="p-divider">'+
-    '<div class="p-section"><div class="p-lbl">Letterlijke tekst (bron: mc.merill.net):</div>'+
-    '<div class="p-val" style="font-size:14px;line-height:1.6;background:color-mix(in srgb, var(--accent) 6%, transparent);border-left:3px solid var(--accent);padding:10px 12px;border-radius:4px">'+escH(a.summaryRaw||'(geen summary beschikbaar)')+'</div></div>'+
-    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Wat dit inhoudt:</div><div class="p-val">'+escH(a.omschrijving||'')+'</div></div>'+
-    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Waar op letten:</div><div class="p-val">'+escH(a.waarOpLetten||'')+'</div></div>'+
-    '<hr class="p-divider"><div class="p-section"><div class="p-lbl">Gerelateerd MC-bericht:</div>'+mcRelHtml+'</div>'+
-    '<div style="font-size:11px;color:var(--muted);margin-top:10px">Roadmap-items krijgen geen zware impactanalyse en geen downloadbaar document.</div>'+
-    '</div>';
+function pendingDetail(it){
+  const isRM=it.id.startsWith('RM'); const st=stOf(it);
+  const plain=(it.summary||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+  return '<div class="dbody"><div><h2 class="h1">'+escH(it.title)+'</h2><div class="chips">'+baseChips(it)+'</div></div>'+
+    (isRM&&plain?sec('Letterlijke tekst (mc.merill.net)','<div class="quote">'+escH(plain)+'</div>'):'')+
+    (st==='proc'?'<div class="sec pending"><b>Wordt nu geanalyseerd</b><span class="muted">Dit duurt meestal 20 tot 60 seconden per item.</span></div>':
+     '<div class="sec pending"><b>'+(st==='err'?'Laatste analyse mislukt':'Nog niet geanalyseerd')+'</b><span class="muted">'+(isRM?'Roadmap-items krijgen een korte duiding en een check op een gerelateerd MC-bericht.':'Start een analyse voor samenvatting, impact en admin-configuratie.')+'</span><button class="btn primary sm" id="d-run"'+(running()?' disabled':'')+'><svg class="i"><use href="#i-play"/></svg>Analyseer dit item</button></div>')+
+  '</div>';
 }
 
-async function selectItem(id){
-  selectedId=id;
-  const isRoadmap=id.startsWith('RM');
-  document.querySelectorAll('tbody tr').forEach(tr=>tr.classList.remove('selected'));
-  document.querySelectorAll('.item-cb').forEach(c=>{if(c.dataset.id===id)c.closest('tr').classList.add('selected');});
-  document.getElementById('tablePane').classList.remove('full');document.getElementById('tablePane').classList.add('half');
-  document.getElementById('detailPane').style.display='flex';
-  document.getElementById('detailTitle').textContent=id;
-  document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Laden...</p></div>';
-  const dl=document.getElementById('dlSingleBtn');
-  dl.style.display=isRoadmap?'none':'inline-flex';
-  try{
-    // Alleen DIT item ophalen i.p.v. alle analyses met volledige JSONB.
-    const data=await apiJson('/api/analyses/'+encodeURIComponent(id));
-    if(selectedId!==id) return; // gebruiker heeft intussen iets anders aangeklikt
-    const a=data.analysis;
-    if(a){
-      document.getElementById('detailTitle').textContent=a.mcId||id;
-      dl.disabled=isRoadmap;
-      document.getElementById('reanalyzeBtn').disabled=false;
-      document.getElementById('detailScroll').innerHTML=isRoadmap?buildRoadmapPreviewHtml(a):buildPreviewHtml(a);
-      if(!isRoadmap) loadImages(a.mcId||id);
-    } else {
-      dl.disabled=true;
-      document.getElementById('reanalyzeBtn').disabled=true;
-      document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:var(--muted)">Nog niet geanalyseerd.</p></div>';
+async function openItem(id,keepKb){
+  const it=allItems().find(i=>i.id===id); if(!it) return;
+  S.open=id; S.openSt=stOf(it);
+  if(!keepKb){const L=visible();S.kb=L.findIndex(i=>i.id===id);}
+  $('main').classList.add('open');
+  const d=$('detail'); d.hidden=false;
+  renderRows();
+  d.innerHTML=detailHead(it,null)+'<div class="dbody"><p class="muted">Laden...</p></div>';
+  wireDetail(it,null);
+  let a=null;
+  if(it.status==='done'){
+    try{
+      const data=await apiJson('/api/analyses/'+encodeURIComponent(id));
+      if(S.open!==id) return; // intussen iets anders aangeklikt
+      a=data.analysis||null;
+    }catch(e){
+      if(S.open!==id) return;
+      d.innerHTML=detailHead(it,null)+'<div class="dbody"><div class="sec" style="color:var(--danger)">Fout bij laden: '+escH(e.message)+'</div></div>';
+      wireDetail(it,null); return;
     }
-  }catch(e){
-    document.getElementById('detailScroll').innerHTML='<div style="padding:20px"><p style="font-size:13px;color:#c50f1f">Fout bij laden: '+escH(e.message)+'</p></div>';
   }
+  const isRM=id.startsWith('RM');
+  d.innerHTML=detailHead(it,a)+(a&&it.status!=='processing'?(isRM?rmDetail(it,a):mcDetail(it,a)):pendingDetail(it));
+  d.scrollTop=0;
+  wireDetail(it,a);
+  if(a&&!isRM) loadImages(id);
+}
+
+function wireDetail(it,a){
+  $('d-x').onclick=closeDetail;
+  if($('d-dl')) $('d-dl').onclick=downloadSingle;
+  if($('d-re')) $('d-re').onclick=()=>{if(confirm('Dit item opnieuw analyseren en de bestaande analyse overschrijven?'))startAnalysis([it],true);};
+  if($('d-run')) $('d-run').onclick=()=>startAnalysis([it],false);
+  if($('d-copy')&&a) $('d-copy').onclick=()=>copyText(a.oneLiner);
 }
 
 function closeDetail(){
-  selectedId=null;
-  document.getElementById('tablePane').classList.remove('half');document.getElementById('tablePane').classList.add('full');
-  document.getElementById('detailPane').style.display='none';
-  document.getElementById('reanalyzeBtn').disabled=true;
+  S.open=null; S.openSt=null;
+  $('main').classList.remove('open'); $('detail').hidden=true; $('detail').innerHTML='';
+  renderRows();
 }
 
-async function reanalyzeSingle(){
-  if(!selectedId) return;
-  const item=allTrackedItems().find(i=>i.id===selectedId);
-  if(!item){toast('Item niet gevonden in de huidige lijst - klik eerst \'Items ophalen\'',true);return;}
-  if(!confirm('Dit item opnieuw analyseren en de bestaande analyse overschrijven?')) return;
-  await startAnalysis([item], true);
+async function loadImages(id){
+  try{
+    const data=await apiJson('/api/images/'+encodeURIComponent(id));
+    if(S.open!==id) return;
+    const imgs=(data.images||[]).filter(img=>safeUrl(img.url));
+    const box=$('d-imgs'); if(!box||!imgs.length) return;
+    box.innerHTML=sec('Afbeeldingen in dit bericht ('+imgs.length+')','<div class="imgs">'+imgs.map(img=>'<a href="'+escH(safeUrl(img.url))+'" target="_blank" rel="noopener noreferrer"><svg class="i"><use href="#i-img"/></svg>'+escH(img.alt||('Afbeelding '+img.index))+'</a>').join('')+'</div>');
+  }catch(e){}
 }
 
-async function analyzeSelected(){const ids=getSelectedIds();const its=activeItems().filter(i=>ids.includes(i.id));await startAnalysis(its,false);}
-async function analyzeAllUnanalyzed(){
-  const its=activeItems().filter(i=>i.status!=='done');
-  if(!its.length){toast('Alle items in dit tabblad zijn al geanalyseerd');return;}
-  if(!confirm('Weet je zeker dat je alle '+its.length+' ongeanalyseerde items wilt analyseren?')) return;
-  await startAnalysis(its,false);
+function copyText(t){
+  const ok=()=>toast('Gekopieerd naar klembord');
+  const fallback=()=>{const el=$('d-brief');if(!el)return;const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);try{document.execCommand('copy');ok();}catch(e){toast('Tekst geselecteerd, druk Ctrl+C');}};
+  try{navigator.clipboard.writeText(t).then(ok,fallback);}catch(e){fallback();}
 }
-async function analyzeAll(){const its=activeItems().filter(i=>i.isNew&&i.status!=='done');if(!its.length){toast('Geen nieuwe items gevonden sinds je laatste bezoek');return;}await startAnalysis(its,false);}
 
-async function startAnalysis(items,force){
-  // API-key uit de browser is optioneel: leeg = server gebruikt ANTHROPIC_API_KEY.
-  const api_key=lsGet('mc_api_key');
-  const webhook_url=lsGet('mc_webhook');
-  // Alleen de velden die de server nodig heeft; url wordt server-side opgebouwd.
-  const payloadItems=items.map(i=>({id:i.id,title:i.title,service:i.service,category:i.category,isMajorChange:i.isMajorChange,summary:i.summary||''}));
+// ─── Data ophalen & analyseren ──────────────────────────────────────────────
+async function fetchItems(){
+  const btn=$('btn-fetch'); const lbl=btn.querySelector('span');
+  btn.disabled=true; btn.querySelector('svg').outerHTML='<span class="spinner"></span>'; lbl.textContent='Ophalen...';
+  try{
+    const mcCount=lsGet('mc_count')||200, rmCount=lsGet('mc_roadmap_count')||100;
+    const [mc,rm]=await Promise.all([
+      apiJson('/api/items?type=mc&count='+encodeURIComponent(mcCount)),
+      apiJson('/api/items?type=roadmap&count='+encodeURIComponent(rmCount))
+    ]);
+    if(!mc.ok) throw new Error(mc.error); if(!rm.ok) throw new Error(rm.error);
+    S.mc=mc.items; S.roadmap=rm.items;
+    const known=new Set(allItems().map(i=>i.id));
+    for(const id of [...S.sel]) if(!known.has(id)) S.sel.delete(id);
+    const d=new Date(); S.fetchedAt=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+    renderSvc(); render();
+    const n=(mc.newCount||0)+(rm.newCount||0);
+    toast((S.mc.length+S.roadmap.length)+' items geladen'+(n?', '+n+' nieuw':''));
+  }catch(e){ if(e.message!=='Niet geautoriseerd') toast('Ophalen mislukt: '+e.message,true); }
+  finally{
+    btn.disabled=false; const sp=btn.querySelector('.spinner'); if(sp) sp.outerHTML='<svg class="i"><use href="#i-refresh"/></svg>'; lbl.textContent='Items ophalen';
+  }
+}
+
+async function startAnalysis(list,force){
+  if(running()){toast('Er loopt al een analyse');return;}
+  if(!list.length){toast('Geen items om te analyseren');return;}
+  if(list.length>25&&!confirm(list.length+' items analyseren? Dit kan even duren en kost Claude-tokens.')) return;
+  closeMenu();
+  const payload=list.map(i=>({id:i.id,title:i.title,service:i.service,category:i.category,isMajorChange:i.isMajorChange,summary:i.summary||''}));
   let resp;
   try{
     resp=await apiJson('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({api_key,items:payloadItems,force,webhook_url})});
-  }catch(e){toast('Fout: '+e.message,true);return;}
+      body:JSON.stringify({api_key:lsGet('mc_api_key'),items:payload,force,webhook_url:lsGet('mc_webhook')})});
+  }catch(e){ if(e.message!=='Niet geautoriseerd') toast('Starten mislukt: '+e.message,true); return; }
   if(!resp.ok){
     if(/API key/i.test(resp.error||'')){openSettings();toast('Geen API key: zet ANTHROPIC_API_KEY in Railway of vul er een in bij Instellingen',true);}
-    else toast('Fout: '+resp.error,true);
+    else toast('Starten mislukt: '+resp.error,true);
     return;
   }
-  document.getElementById('errBanner').style.display='none';
-  items.forEach(i=>{const item=allTrackedItems().find(x=>x.id===i.id);if(item)item.status='processing';});
-  renderTable();
+  S.errors=[]; list.forEach(i=>{S.errIds.delete(i.id);i._startAt=i.analyzedAt||null;i.status='processing';});
+  S.sel.clear();
+  S.prog={running:true,done:0,total:resp.total||list.length,current:''};
+  render(); refreshOpenIfChanged();
   startPolling();
 }
 
-function startPolling(){
-  document.getElementById('progressWrap').style.display='block';
-  document.getElementById('resetBtn').style.display='flex';
-  if(pollTimer) clearInterval(pollTimer);
-  pollTimer=setInterval(pollProgress,2000);
-  pollProgress();
+async function stopAnalysis(){
+  if(!confirm('Analyse stoppen? Het item dat nu bezig is wordt nog afgerond.')) return;
+  try{await api('/api/reset',{method:'POST'});}catch(e){return;}
+  stopPolling();
+  S.prog=null;
+  allItems().forEach(i=>{if(i.status==='processing')i.status='new';});
+  await syncSummary(); render(); refreshOpenIfChanged(); toast('Analyse gestopt');
 }
 
-function showErrors(errors){
-  const box=document.getElementById('errBanner');
-  if(!errors||!errors.length){box.style.display='none';return;}
-  document.getElementById('errBannerTitle').textContent=errors.length+' fout'+(errors.length===1?'':'en')+' in de laatste run';
-  document.getElementById('errList').innerHTML=errors.map(e=>'<li>'+escH(e)+'</li>').join('');
-  box.style.display='block';
+function startPolling(){ if(pollTimer) clearInterval(pollTimer); pollTimer=setInterval(poll,2000); poll(); }
+function stopPolling(){ if(pollTimer) clearInterval(pollTimer); pollTimer=null; }
+
+async function syncSummary(){
+  // Lichte summary (id -> score/titel), niet alle analyses met volledige JSONB.
+  const data=await apiJson('/api/analyses'); const sum=data.analyses||{};
+  for(const i of allItems()){
+    const s=sum[i.id]; if(!s) continue;
+    // Een item in de lopende run telt pas als klaar als analyzed_at echt veranderd is
+    // (bij heranalyse bestaat de oude analyse al).
+    if(i.status==='processing'&&running()&&s.analyzed_at===i._startAt) continue;
+    i.status='done'; i.relevantieSCore=s.relevantieSCore; i.analyzedTitle=s.title; i.analyzedAt=s.analyzed_at;
+  }
+  return sum;
 }
 
-let pollBusy=false;
-async function pollProgress(){
-  if(pollBusy) return; // voorkom overlappende polls bij een trage server
-  pollBusy=true;
+async function poll(){
+  if(pollBusy) return; pollBusy=true;
   try{
     const p=await apiJson('/api/progress');
-    const pct=p.total>0?Math.round((p.done/p.total)*100):0;
-    document.getElementById('progressFill').style.width=pct+'%';
-    document.getElementById('progressLbl').textContent=p.running?
-      'Analyseren '+p.done+'/'+p.total+': '+(p.current||''):'Klaar - '+p.done+' verwerkt';
-    document.getElementById('resetBtn').style.display=p.running?'flex':'none';
-    // Lichte summary (id -> score/titel) i.p.v. alle analyses met volledige JSONB.
-    const data=await apiJson('/api/analyses');
-    const summary=data.analyses||{};
-    applySummaryToItems(summary);
-    renderTable(); updateStats();
+    S.prog=p;
+    const sum=await syncSummary();
     if(!p.running){
-      clearInterval(pollTimer); pollTimer=null;
-      for(const item of allTrackedItems()){if(item.status==='processing')item.status=summary[item.id]?'done':'new';}
-      renderTable(); updateStats();
-      setTimeout(()=>{document.getElementById('progressWrap').style.display='none';},3000);
-      const nErr=(p.errors||[]).length;
-      showErrors(p.errors);
-      toast('Analyse klaar - '+p.done+' verwerkt'+(nErr?' ('+nErr+' fouten, zie melding bovenaan)':''), nErr>0);
-      if(selectedId&&summary[selectedId]) selectItem(selectedId);
+      stopPolling();
+      // Items die in deze run zaten maar geen analyse kregen: terug naar openstaand/fout.
+      S.errIds=new Set((p.errors||[]).map(e=>(String(e).match(/^(MC|RM)\d+/)||[])[0]).filter(Boolean));
+      allItems().forEach(i=>{if(i.status==='processing') i.status=sum[i.id]?'done':'new';});
+      S.errors=p.errors||[];
+      const n=S.errors.length;
+      if(p.total) toast('Analyse klaar: '+p.done+' verwerkt'+(n?', '+n+' fout'+(n>1?'en':'')+' (zie melding)':''),n>0);
+      S.prog=null;
     }
-  }catch(e){console.warn('Poll fout:',e);}
-  finally{pollBusy=false;}
+    render(); refreshOpenIfChanged();
+  }catch(e){ console.warn('Poll fout:',e); }
+  finally{ pollBusy=false; }
 }
 
-async function resetAnalysis(){
-  if(!confirm('Weet je zeker dat je de analyse wilt stoppen? Het item dat nu bezig is wordt nog afgerond.')) return;
-  try{await api('/api/reset',{method:'POST'});}catch(e){return;}
-  clearInterval(pollTimer); pollTimer=null;
-  document.getElementById('progressWrap').style.display='none';
-  document.getElementById('resetBtn').style.display='none';
-  for(const item of allTrackedItems()){if(item.status==='processing')item.status='new';}
-  renderTable(); updateStats(); toast('Analyse gestopt');
+function refreshOpenIfChanged(){
+  if(!S.open) return;
+  const it=allItems().find(i=>i.id===S.open); if(!it) return;
+  const st=stOf(it);
+  if(st!==S.openSt) openItem(S.open,true);
+  else { const re=$('d-re'); if(re) re.disabled=running(); const r=$('d-run'); if(r) r.disabled=running(); }
 }
 
-// Downloads via fetch+blob zodat de app-token als header mee kan (window.location kan geen headers zetten).
+// Downloads via fetch+blob zodat de app-token als header mee kan.
 async function downloadBlob(path,opts,fallbackName){
   const resp=await api(path,opts);
   if(!resp.ok){const t=await resp.text().catch(()=>'');throw new Error(t||('HTTP '+resp.status));}
@@ -712,48 +766,126 @@ async function downloadBlob(path,opts,fallbackName){
   let name=fallbackName;
   const m=cd.match(/filename\*=UTF-8''([^;]+)/i)||cd.match(/filename="?([^";]+)"?/i);
   if(m){try{name=decodeURIComponent(m[1]);}catch(e){name=m[1];}}
-  const blob=await resp.blob();
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');a.href=url;a.download=name;
-  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+  const url=URL.createObjectURL(await resp.blob());
+  const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
 }
-
 async function downloadSingle(){
-  if(!selectedId||selectedId.startsWith('RM'))return;
-  try{await downloadBlob('/api/download/'+encodeURIComponent(selectedId),{},selectedId+'.docx');}
-  catch(e){toast('Download mislukt: '+e.message,true);}
+  if(!S.open||S.open.startsWith('RM')) return;
+  try{await downloadBlob('/api/download/'+encodeURIComponent(S.open),{},S.open+'.docx');}
+  catch(e){if(e.message!=='Niet geautoriseerd')toast('Download mislukt: '+e.message,true);}
 }
-
 async function downloadSelectedZip(){
-  const ids=getSelectedIds().filter(id=>!id.startsWith('RM')&&activeItems().find(i=>i.id===id)?.status==='done');
-  if(!ids.length){toast('Selecteer eerst geanalyseerde MC-items (roadmap-items hebben geen document)',true);return;}
-  toast('ZIP wordt aangemaakt voor '+ids.length+' items...');
+  const ids=selIds().filter(id=>!id.startsWith('RM')&&(items().find(i=>i.id===id)||{}).status==='done');
+  if(!ids.length){toast('Selecteer geanalyseerde MC-items (roadmap-items hebben geen document)',true);return;}
+  toast('ZIP wordt gemaakt voor '+ids.length+' items...');
+  try{await downloadBlob('/api/download-zip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})},'MC_analyses_'+new Date().toISOString().slice(0,10)+'.zip');toast('ZIP gedownload ('+ids.length+' bestanden)');}
+  catch(e){if(e.message!=='Niet geautoriseerd')toast('ZIP mislukt: '+e.message,true);}
+}
+
+// ─── Modals ─────────────────────────────────────────────────────────────────
+function openSettings(){
+  $('s-token').value=lsGet('mc_app_token'); $('s-key').value=lsGet('mc_api_key');
+  $('s-count').value=lsGet('mc_count')||'200'; $('s-rmcount').value=lsGet('mc_roadmap_count')||'100';
+  $('s-hook').value=lsGet('mc_webhook');
+  $('settings').hidden=false; setTimeout(()=>$('s-token').focus(),0);
+}
+function closeSettings(){$('settings').hidden=true;}
+function saveSettings(){
+  const w=$('s-hook').value.trim();
+  if(w&&!/^https:\/\//i.test(w)){toast('Webhook moet met https:// beginnen',true);return;}
+  lsSet('mc_app_token',$('s-token').value.trim()); lsSet('mc_api_key',$('s-key').value.trim());
+  lsSet('mc_count',$('s-count').value); lsSet('mc_roadmap_count',$('s-rmcount').value); lsSet('mc_webhook',w);
+  closeSettings(); toast('Instellingen opgeslagen');
+}
+const fmtNum=n=>(n||0).toLocaleString('nl-NL');
+async function openUsage(){
+  $('usage').hidden=false; $('usage-body').textContent='Laden...';
   try{
-    await downloadBlob('/api/download-zip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids})},'MC_analyses_'+new Date().toISOString().slice(0,10)+'.zip');
-    toast('ZIP gedownload ('+ids.length+' bestanden)');
-  }catch(e){toast('Fout bij aanmaken ZIP: '+e.message,true);}
+    const data=await apiJson('/api/usage-summary'); if(!data.ok) throw new Error('kon gebruik niet laden');
+    const t=data.usage.totaal||{}, w=data.usage.laatste_7_dagen||{};
+    const cell=(k,v,s)=>'<div class="ucell"><div class="k">'+k+'</div><div class="v">'+v+'</div>'+(s?'<div class="s">'+s+'</div>':'')+'</div>';
+    $('usage-body').innerHTML=
+      '<div class="ucell" style="margin-bottom:10px;background:none;border:0;padding:0"><div class="k">Laatste 7 dagen</div></div>'+
+      '<div class="ugrid">'+cell('Analyses',fmtNum(w.analyses))+cell('Web searches',fmtNum(w.web_search_requests),'~$0,01 per search')+cell('Input tokens',fmtNum(w.input_tokens))+cell('Output tokens',fmtNum(w.output_tokens))+'</div>'+
+      '<div class="ucell" style="margin-bottom:10px;background:none;border:0;padding:0"><div class="k">Totaal sinds tracking</div></div>'+
+      '<div class="ugrid">'+cell('Analyses',fmtNum(t.analyses))+cell('Web searches',fmtNum(t.web_search_requests))+cell('Input tokens',fmtNum(t.input_tokens))+cell('Cache-read tokens',fmtNum(t.cache_read_input_tokens),'90% goedkoper door prompt caching')+'</div>'+
+      '<p class="note" style="margin:0">Exacte kosten staan in de Anthropic Console (Usage). Dit zijn ruwe tellingen.</p>';
+  }catch(e){ $('usage-body').innerHTML='<span style="color:var(--danger)">Laden mislukt: '+escH(e.message)+'</span>'; }
 }
 
-async function loadImages(mcId){
-  const container=document.getElementById('images-'+mcId);
-  if(!container)return;
-  try{
-    const data=await apiJson('/api/images/'+encodeURIComponent(mcId));
-    const imgs=(data.images||[]).filter(img=>safeUrl(img.url));
-    if(!imgs.length){container.innerHTML='';return;}
-    const its=imgs.map(img=>'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">&#128444;</span>'+linkHtml(img.url,(img.alt||'Afbeelding '+img.index)+' ↗','font-size:13px;color:var(--accent);text-decoration:none')+'</div>').join('');
-    container.innerHTML='<div style="background:var(--row-hover);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--muted);margin-bottom:8px">Afbeeldingen in dit item ('+imgs.length+')</div>'+its+'</div>';
-  }catch(e){if(container)container.innerHTML='';}
-}
+function closeMenu(){$('analyze-menu').hidden=true;$('btn-analyze-menu').setAttribute('aria-expanded','false');}
 
-function copyOneLiner(text){
-  navigator.clipboard.writeText(text).then(()=>toast('Gekopieerd naar klembord!')).catch(()=>{
-    const el=document.createElement('textarea');el.value=text;document.body.appendChild(el);el.select();document.execCommand('copy');document.body.removeChild(el);toast('Gekopieerd!');
-  });
-}
+// ─── Events ─────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  S.tab=b.dataset.tab; S.kb=-1;
+  document.querySelectorAll('.tab').forEach(x=>x.setAttribute('aria-selected',x===b?'true':'false'));
+  closeDetail(); renderSvc(); render();
+});
+$('rows').addEventListener('click',e=>{
+  if(e.target.closest('td.cbc')) return;
+  const tr=e.target.closest('tr[data-id]'); if(tr) openItem(tr.dataset.id);
+});
+$('rows').addEventListener('change',e=>{
+  const id=e.target.dataset.cb; if(!id) return;
+  e.target.checked?S.sel.add(id):S.sel.delete(id); renderCounts(); renderBar(); renderRows();
+});
+$('cb-all').onchange=e=>{visible().forEach(i=>e.target.checked?S.sel.add(i.id):S.sel.delete(i.id));render();};
+$('q').oninput=e=>{S.q=e.target.value;S.kb=-1;renderRows();};
+$('f-status').onchange=e=>{S.fst=e.target.value;S.kb=-1;render();};
+$('f-score').onchange=e=>{S.fsc=+e.target.value;S.kb=-1;renderRows();};
+$('f-svc').onchange=e=>{S.fsvc=e.target.value;S.kb=-1;renderRows();};
+$('th-score').onclick=()=>{S.sort='score';S.kb=-1;renderRows();};
+$('th-date').onclick=()=>{S.sort='date';S.kb=-1;renderRows();};
+$('btn-fetch').onclick=fetchItems;
+$('btn-analyze-new').onclick=()=>startAnalysis(items().filter(i=>stOf(i)==='new'),false);
+$('btn-analyze-menu').onclick=e=>{e.stopPropagation();const m=$('analyze-menu');m.hidden=!m.hidden;$('btn-analyze-menu').setAttribute('aria-expanded',String(!m.hidden));};
+$('analyze-menu').onclick=e=>{
+  const b=e.target.closest('[data-run]'); if(!b||b.disabled) return;
+  const r=b.dataset.run, L=items();
+  const list=r==='new'?L.filter(i=>stOf(i)==='new'):r==='open'?L.filter(i=>i.status!=='done'):L.filter(i=>S.sel.has(i.id));
+  startAnalysis(list,false);
+};
+document.addEventListener('click',e=>{if(!e.target.closest('#analyze-wrap'))closeMenu();});
+$('btn-theme').onclick=()=>{
+  const r=document.documentElement; const cur=r.getAttribute('data-theme');
+  const dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+  const next=dark?'light':'dark'; r.setAttribute('data-theme',next); lsSet('mc_theme',next);
+};
+$('btn-settings').onclick=openSettings; $('s-cancel').onclick=closeSettings; $('s-save').onclick=saveSettings;
+$('settings').onclick=e=>{if(e.target===$('settings'))closeSettings();};
+$('btn-usage').onclick=openUsage; $('u-close').onclick=()=>{$('usage').hidden=true;};
+$('usage').onclick=e=>{if(e.target===$('usage'))$('usage').hidden=true;};
 
-let toastTimer;
-function toast(msg,err=false){const el=document.getElementById('toast');el.textContent=msg;el.style.background=err?'#c50f1f':'var(--dark)';el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),err?6000:3500);}
+document.addEventListener('keydown',e=>{
+  const ae=document.activeElement;
+  const typing=/INPUT|SELECT|TEXTAREA/.test(ae.tagName)&&ae.type!=='checkbox';
+  const modal=!$('settings').hidden||!$('usage').hidden;
+  if(e.key==='Escape'){
+    if(!$('settings').hidden){closeSettings();return;}
+    if(!$('usage').hidden){$('usage').hidden=true;return;}
+    if(!$('analyze-menu').hidden){closeMenu();return;}
+    if(typing){ae.blur();return;}
+    if(S.open){closeDetail();return;}
+  }
+  if(modal) { if(e.key==='Enter'&&!$('settings').hidden&&ae.tagName!=='BUTTON') saveSettings(); return; }
+  if(e.key==='/'&&!typing){e.preventDefault();$('q').focus();return;}
+  if(typing||e.ctrlKey||e.metaKey||e.altKey) return;
+  const L=visible(); if(!L.length) return;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    e.preventDefault();
+    const dir=e.key==='ArrowDown'?1:-1;
+    S.kb=S.kb<0?(dir>0?0:L.length-1):Math.max(0,Math.min(L.length-1,S.kb+dir));
+    if(S.open) openItem(L[S.kb].id,true); else renderRows();
+    const tr=$('rows').children[S.kb]; if(tr) tr.scrollIntoView({block:'nearest'});
+  } else if(e.key==='Enter'&&S.kb>=0&&L[S.kb]){ e.preventDefault(); openItem(L[S.kb].id,true); }
+  else if(e.key===' '&&S.kb>=0&&L[S.kb]){ e.preventDefault(); const id=L[S.kb].id; S.sel.has(id)?S.sel.delete(id):S.sel.add(id); render(); }
+});
+
+// ─── Start ──────────────────────────────────────────────────────────────────
+render();
+// Loopt er nog een run op de server (bv. de geplande run of vanaf een ander tabblad)? Voortgang oppakken.
+(async()=>{ try{ const p=await apiJson('/api/progress'); if(p.running){S.prog=p;render();startPolling();} }catch(e){} })();
+})();
 </script>
 </body>
 </html>

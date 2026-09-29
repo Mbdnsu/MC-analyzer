@@ -1033,6 +1033,7 @@ def get_items():
             if s:
                 item["relevantieSCore"] = s["relevantieSCore"]
                 item["analyzedTitle"] = s["title"]
+                item["analyzedAt"] = s["analyzed_at"]
         save_seen(new_ids)
         return jsonify({"ok": True, "items": items, "newCount": len(new_ids)})
     except Exception as e:
