@@ -12,8 +12,6 @@ from docx.shared import Pt
 import psycopg2
 from psycopg2 import pool as pgpool
 from psycopg2.extras import RealDictCursor, execute_values
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 
 # ─── LOGGING ──────────────────────────────────────────────────────────────────
 # logging i.p.v. print(): timestamps, levels, en geen verloren regels door stdout-
@@ -135,6 +133,11 @@ def init_db():
                 item_type TEXT,
                 summary TEXT
             )''')
+            # Brongegevens die de analyse als harde feiten meekrijgt (datums, tags).
+            for col in ("start_date", "end_date", "tags"):
+                cur.execute(f"ALTER TABLE mc_archive ADD COLUMN IF NOT EXISTS {col} TEXT")
+            # Geschat bedrag per gelogde aanroep (per model berekend op het moment van loggen).
+            cur.execute("ALTER TABLE usage_log ADD COLUMN IF NOT EXISTS usd DOUBLE PRECISION")
         log.info("Database klaar")
     except Exception as e:
         log.error(f"DB init fout: {e}")
@@ -160,7 +163,8 @@ def load_state_summary():
     with db(RealDictCursor) as cur:
         cur.execute('''SELECT mc_id, filename, analyzed_at,
                        analysis->>'relevantieSCore' AS score,
-                       analysis->>'title' AS analyzed_title
+                       analysis->>'title' AS analyzed_title,
+                       analysis->>'_sourceModified' AS source_modified
                        FROM analyses''')
         rows = cur.fetchall()
     out = {}
@@ -169,7 +173,8 @@ def load_state_summary():
         try: score = int(score) if score is not None else None
         except (TypeError, ValueError): score = None
         out[r['mc_id']] = {'relevantieSCore': score, 'title': r['analyzed_title'],
-                           'analyzed_at': r['analyzed_at'], 'hasDocx': bool(r['filename'])}
+                           'analyzed_at': r['analyzed_at'], 'hasDocx': bool(r['filename']),
+                           'source_modified': r['source_modified']}
     return out
 
 def load_analysis(mc_id):
@@ -214,7 +219,17 @@ def _row_to_raw(row):
         "Category": row["category"] or "",
         "IsMajorChange": bool(row["is_major_change"]),
         "Summary": row.get("summary") or "",
+        "StartDateTime": row.get("start_date") or "",
+        "EndDateTime": row.get("end_date") or "",
+        "Tags": _json_list(row.get("tags")),
     }
+
+def _json_list(v):
+    try:
+        out = json.loads(v) if v else []
+        return out if isinstance(out, list) else []
+    except (TypeError, ValueError):
+        return []
 
 def _save_archive_items(raw_entries, item_type):
     """Upsert de LIVE geziene items (archive.json + index.json, niet de eigen db-rijen die
@@ -231,55 +246,137 @@ def _save_archive_items(raw_entries, item_type):
             entry.get("Url") or item_url(eid),
             entry.get("Category", ""), bool(entry.get("IsMajorChange", False)),
             item_type, entry.get("Summary", ""),
+            entry.get("StartDateTime") or "", entry.get("EndDateTime") or "",
+            json.dumps(entry.get("Tags") or []),
         ))
     if not rows:
         return
     try:
         with db() as cur:
             execute_values(cur, '''INSERT INTO mc_archive
-                (mc_id, title, services, last_modified, url, category, is_major_change, item_type, summary)
+                (mc_id, title, services, last_modified, url, category, is_major_change, item_type, summary,
+                 start_date, end_date, tags)
                 VALUES %s ON CONFLICT (mc_id) DO UPDATE SET
                 title=EXCLUDED.title, services=EXCLUDED.services, last_modified=EXCLUDED.last_modified,
                 url=EXCLUDED.url, category=EXCLUDED.category, is_major_change=EXCLUDED.is_major_change,
-                summary=EXCLUDED.summary''', rows)
+                summary=EXCLUDED.summary, start_date=EXCLUDED.start_date, end_date=EXCLUDED.end_date,
+                tags=EXCLUDED.tags''', rows)
     except Exception as e:
         log.error(f"_save_archive_items fout: {e}")
+
+# ─── MODELLEN EN KOSTENSCHATTING ──────────────────────────────────────────────
+# Hoofdmodel voor de MC-analyse; het lichte model doet goedkoop bijwerk (samenvatting
+# herschrijven) en de korte roadmap-duiding. Tarieven in dollars per miljoen tokens
+# (input, output, cache-write, cache-read). Bron: platform.claude.com/docs/en/about-claude/pricing.
+# Dit blijft een SCHATTING; het exacte bedrag staat in de Anthropic Console onder Cost.
+def _price(name, default):
+    try: return float(os.environ.get(name, default))
+    except ValueError: return float(default)
+
+ANALYSIS_MODEL = os.environ.get("ANALYSIS_MODEL", "claude-sonnet-5")
+LIGHT_MODEL = os.environ.get("LIGHT_MODEL", "claude-haiku-4-5-20251001")
+PRICE_INPUT = _price("PRICE_INPUT", "2")
+PRICE_OUTPUT = _price("PRICE_OUTPUT", "10")
+PRICE_CACHE_WRITE = _price("PRICE_CACHE_WRITE", "2.5")
+PRICE_CACHE_READ = _price("PRICE_CACHE_READ", "0.2")
+PRICE_WEB_SEARCH = _price("PRICE_WEB_SEARCH", "0.01")
+MODEL_PRICES = {
+    ANALYSIS_MODEL: (PRICE_INPUT, PRICE_OUTPUT, PRICE_CACHE_WRITE, PRICE_CACHE_READ),
+    LIGHT_MODEL: (_price("PRICE_LIGHT_INPUT", "1"), _price("PRICE_LIGHT_OUTPUT", "5"),
+                  _price("PRICE_LIGHT_CACHE_WRITE", "1.25"), _price("PRICE_LIGHT_CACHE_READ", "0.1")),
+}
+
+_USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "web_search_requests")
+
+def _tokens_usd(u, model=None):
+    pin, pout, pcw, pcr = MODEL_PRICES.get(model or ANALYSIS_MODEL, MODEL_PRICES[ANALYSIS_MODEL])
+    g = lambda k: float(u.get(k) or 0)
+    return (g("input_tokens") * pin + g("output_tokens") * pout + g("cache_creation_input_tokens") * pcw
+            + g("cache_read_input_tokens") * pcr) / 1_000_000 + g("web_search_requests") * PRICE_WEB_SEARCH
+
+def cost_usd(u):
+    """Geschatte kosten van een usage-dict. Nieuwe dicts dragen hun eigen 'usd' (per model
+    berekend); oudere rijen zonder 'usd' worden tegen het hoofdmodel gerekend."""
+    if not u: return 0.0
+    if u.get("usd") is not None: return float(u["usd"])
+    return _tokens_usd(u)
+
+def usage_of(msg, model=None):
+    """Usage van één API-antwoord als dict incl. geschatte 'usd' (lege dict zonder antwoord)."""
+    u = getattr(msg, "usage", None) if msg is not None else None
+    if u is None: return {}
+    out = {
+        "input_tokens": getattr(u, "input_tokens", 0) or 0,
+        "output_tokens": getattr(u, "output_tokens", 0) or 0,
+        "cache_read_input_tokens": getattr(u, "cache_read_input_tokens", 0) or 0,
+        "cache_creation_input_tokens": getattr(u, "cache_creation_input_tokens", 0) or 0,
+        "web_search_requests": getattr(getattr(u, "server_tool_use", None), "web_search_requests", 0) or 0,
+    }
+    out["usd"] = _tokens_usd(out, model)
+    return out
+
+def add_usage(total, part):
+    if not part: return total
+    for k in _USAGE_KEYS:
+        total[k] = (total.get(k) or 0) + (part.get(k) or 0)
+    total["usd"] = float(total.get("usd") or 0) + cost_usd(part)
+    return total
 
 def save_usage(mc_id, analyzed_at, usage):
     if not usage: return
     try:
         with db() as cur:
             cur.execute('''INSERT INTO usage_log (mc_id, analyzed_at, input_tokens, output_tokens,
-                cache_read_input_tokens, cache_creation_input_tokens, web_search_requests)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+                cache_read_input_tokens, cache_creation_input_tokens, web_search_requests, usd)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
                 (mc_id, analyzed_at, usage.get("input_tokens"), usage.get("output_tokens"),
                  usage.get("cache_read_input_tokens"), usage.get("cache_creation_input_tokens"),
-                 usage.get("web_search_requests")))
+                 usage.get("web_search_requests"), round(cost_usd(usage), 6)))
     except Exception as e:
         log.error(f"save_usage fout: {e}")
+
+def _period_start(kind):
+    """Begin van 'vandaag' of 'deze maand' in Nederlandse tijd, omgerekend naar de (naive)
+    servertijd waarin analyzed_at is opgeslagen."""
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("Europe/Amsterdam"))
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if kind == "month": start = start.replace(day=1)
+    return start.astimezone().replace(tzinfo=None).isoformat()
+
+def _usage_period(cur, since=None):
+    sums = ", ".join(f"COALESCE(SUM({k}),0) AS {k}" for k in _USAGE_KEYS)
+    legacy = ", ".join(f"COALESCE(SUM({k}) FILTER (WHERE usd IS NULL),0) AS legacy_{k}" for k in _USAGE_KEYS)
+    cur.execute(f"""SELECT (mc_id LIKE 'RM%%') AS is_rm, COUNT(DISTINCT mc_id) AS n, {sums}, {legacy},
+        COALESCE(SUM(usd),0) AS usd_logged
+        FROM usage_log {'WHERE analyzed_at >= %s' if since else ''} GROUP BY 1""", (since,) if since else ())
+    out = {k: 0 for k in _USAGE_KEYS}
+    out.update({"analyses": 0, "usd": 0.0, "mc": {"analyses": 0, "usd": 0.0}, "rm": {"analyses": 0, "usd": 0.0}})
+    for r in cur.fetchall():
+        for k in _USAGE_KEYS: out[k] += int(r[k])
+        usd = float(r["usd_logged"]) + _tokens_usd({k: r["legacy_" + k] for k in _USAGE_KEYS})
+        n = int(r["n"]); out["analyses"] += n; out["usd"] += usd
+        out["rm" if r["is_rm"] else "mc"] = {"analyses": n, "usd": round(usd, 4)}
+    out["usd"] = round(out["usd"], 4)
+    return out
 
 def load_usage_summary():
     try:
         with db(RealDictCursor) as cur:
-            cur.execute('''SELECT COUNT(*) AS analyses,
-                COALESCE(SUM(input_tokens),0) AS input_tokens,
-                COALESCE(SUM(output_tokens),0) AS output_tokens,
-                COALESCE(SUM(cache_read_input_tokens),0) AS cache_read_input_tokens,
-                COALESCE(SUM(cache_creation_input_tokens),0) AS cache_creation_input_tokens,
-                COALESCE(SUM(web_search_requests),0) AS web_search_requests
-                FROM usage_log''')
-            totals = cur.fetchone()
-            cur.execute('''SELECT COUNT(*) AS analyses,
-                COALESCE(SUM(input_tokens),0) AS input_tokens,
-                COALESCE(SUM(output_tokens),0) AS output_tokens,
-                COALESCE(SUM(web_search_requests),0) AS web_search_requests
-                FROM usage_log WHERE analyzed_at > %s''',
-                ((datetime.now() - timedelta(days=7)).isoformat(),))
-            last7d = cur.fetchone()
-        return {"totaal": dict(totals), "laatste_7_dagen": dict(last7d)}
+            return {
+                "vandaag": _usage_period(cur, _period_start("day")),
+                "laatste_7_dagen": _usage_period(cur, (datetime.now() - timedelta(days=7)).isoformat()),
+                "deze_maand": _usage_period(cur, _period_start("month")),
+                "totaal": _usage_period(cur),
+                "prijzen": {"input": PRICE_INPUT, "output": PRICE_OUTPUT, "cache_write": PRICE_CACHE_WRITE,
+                            "cache_read": PRICE_CACHE_READ, "web_search": PRICE_WEB_SEARCH,
+                            "model": ANALYSIS_MODEL, "licht_model": LIGHT_MODEL,
+                            "licht_input": MODEL_PRICES[LIGHT_MODEL][0], "licht_output": MODEL_PRICES[LIGHT_MODEL][1]},
+                "web_search_modus": WEB_SEARCH_MODE, "web_search_min_score": WEB_SEARCH_MIN_SCORE,
+            }
     except Exception as e:
         log.error(f"load_usage_summary fout: {e}")
-        return {"totaal": {}, "laatste_7_dagen": {}}
+        return {}
 
 def load_seen():
     try:
@@ -300,39 +397,92 @@ def save_seen(new_ids):
     except Exception as e:
         log.error(f"save_seen fout: {e}")
 
-# ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
-# "impactBeheer" (Wijzigingen in beheer of gedrag) is bewust verwijderd uit het schema - wordt niet gebruikt.
-# "adminConfig" is nieuw: wordt ALLEEN in de webweergave getoond (zie templates/index.html),
-# bewust NIET meegenomen in build_docx() - het gedownloade document blijft ongewijzigd.
-# Het output-formaat wordt sinds kort afgedwongen via de "return_analysis" tool (zie ANALYSIS_TOOL
-# hieronder) i.p.v. een "geef alleen JSON terug"-instructie - vandaar geen JSON-voorbeeld meer hier.
-SYSTEM_PROMPT = """Je bent een senior Microsoft 365 / Modern Workplace engineer die Message Center en Roadmap items analyseert voor een enterprise IT-afdeling.
-Schrijf ALTIJD in het Nederlands. Geen em-dash. Geen "ten eerste/tweede". Omschrijving zonder risico/impact-taal in de introtekst zelf.
+# ─── TENANTPROFIEL ────────────────────────────────────────────────────────────
+# Technisch profiel van de UWV-tenant, zodat de impact over UWV gaat en niet over "alle
+# organisaties". Bewust organisatiebreed: geen afdelingen, eigenaarschap of persoonlijke
+# rollen, want de analyses worden met engineers van alle afdelingen besproken.
+# Aanpassen zonder deploy van code: zet TENANT_PROFILE als Railway-variable (vervangt dit blok).
+DEFAULT_TENANT_PROFILE = """- Organisatie: UWV, grote Nederlandse overheidsorganisatie.
+- Licenties: Microsoft 365 E5, inclusief Defender for Endpoint P2, Defender for Identity, Defender for Cloud Apps, Defender for Office 365 P2 en Purview.
+- Identiteit: hybride (Entra Connect sync, geen ADFS), uitgebreide Conditional Access-policies (compliance, app protection, sign-in risk).
+- Exchange: hybride (on-premises Exchange naast Exchange Online).
+- Windows: volledig Entra ID joined (geen hybrid join), uitgerold via Autopilot en volledig beheerd met Intune (geen SCCM of co-management). Eindgebruikers hebben geen lokale adminrechten.
+- Copilot: alleen Copilot Chat via het web (copilot.microsoft.com). Geen Microsoft 365 Copilot-licenties breed uitgerold (minder dan 50), geen Copilot in Teams, Word, Excel of Outlook voor eindgebruikers, geen Copilot Studio, geen agents, geen Viva-suite."""
+TENANT_PROFILE = os.environ.get("TENANT_PROFILE", "").strip() or DEFAULT_TENANT_PROFILE
 
-Je output wordt afgedwongen via de "return_analysis" tool. Rond je analyse ALTIJD af met precies één aanroep van die tool met het volledige resultaat. Reageer nooit met losse tekst als eindantwoord - alleen tussentijds nadenken en eventueel web_search-aanroepen zijn toegestaan voor die laatste stap.
+# ─── WEB SEARCH-BELEID ────────────────────────────────────────────────────────
+# Web search is veruit de grootste kostenpost: elk zoekresultaat wordt bij elke volgende
+# stap opnieuw als input gelezen. Daarom gelaagd:
+#   stap 1  analyse ZONDER web search (bericht + brongegevens + tenantprofiel)
+#   stap 2  verdiepen MET web search: adminconfig verifiëren, links, actuele status
+# Stap 2 draait automatisch als de score >= WEB_SEARCH_MIN_SCORE is of er actie vereist is,
+# en altijd als je per item op de knop "Web search" klikt.
+#   WEB_SEARCH_MODE = auto (standaard) | always (elk item, duurder) | never (alleen via de knop)
+WEB_SEARCH_MODE = os.environ.get("WEB_SEARCH_MODE", "auto").lower()
+if WEB_SEARCH_MODE not in ("auto", "always", "never"): WEB_SEARCH_MODE = "auto"
+try: WEB_SEARCH_MIN_SCORE = max(1, min(5, int(os.environ.get("WEB_SEARCH_MIN_SCORE", "3"))))
+except ValueError: WEB_SEARCH_MIN_SCORE = 3
+try: WEB_SEARCH_MAX_USES = max(1, min(5, int(os.environ.get("WEB_SEARCH_MAX_USES", "3"))))
+except ValueError: WEB_SEARCH_MAX_USES = 3
+# Experimenteel: "web_search_20260209" laat Claude zoekresultaten filteren voordat ze in de
+# context komen (minder tokens volgens Anthropic). Standaard de beproefde versie.
+WEB_SEARCH_VERSION = os.environ.get("WEB_SEARCH_VERSION", "web_search_20250305")
 
-relevantieSCore: 1=nauwelijks relevant, 2=beperkt, 3=gemiddeld, 4=relevant, 5=zeer relevant/actie vereist
+# ─── SYSTEM PROMPTS ───────────────────────────────────────────────────────────
+# Context en werkwijze staan hier; de regels PER VELD staan in de tool-descriptions.
+_PROMPT_CONTEXT = """Je bent een senior Microsoft 365 / Modern Workplace engineer. Je analyseert Microsoft 365 Message Center-berichten voor UWV. De analyses worden wekelijks besproken met engineers van alle afdelingen en als Word-document gedeeld.
 
-oneLiner - dit is de "Samenvatting voor Planner": een compact, duidelijk en makkelijk te begrijpen uitleg van het item in gewone taal, in EEN doorlopende alinea van ongeveer 40-70 woorden (richtlijn: 3 tot maximaal 5 zinnen, dus niet 1 kale zin maar ook zeker geen lang verhaal). Bedoeld om in een paar seconden te lezen of hardop voor te lezen in een overleg aan mensen die dit bericht niet kennen.
-- Focus vrijwel volledig op WAT ER VERANDERT: leg in gewone taal uit wat de wijziging concreet inhoudt, voor wie, en hoe het er in de praktijk uitziet. Geen jargon of onuitgelegde afkortingen.
-- Actie/planning/relevantie zijn ondergeschikt: noem dat soort dingen alleen terloops in een bijzin als het er echt toe doet, forceer het niet en besteed er geen aparte zin aan.
-- Geen bullets, geen labels, geen kopjes - gewoon 1 vloeiende alinea, en houd 'm echt kort: dit is een korte briefing, geen mini-analyse.
+TENANTPROFIEL UWV (gebruik dit om te bepalen of en hoe een wijziging UWV raakt):
+""" + TENANT_PROFILE + """
 
-adminConfig - je hebt een web_search tool tot je beschikking, gebruik die actief voor dit onderdeel:
-- Noemt de brontekst zelf al een concrete admin-instelling met locatie? Dan "bron":"vermeld in bericht", geen zoekopdracht nodig.
-- Noemt de brontekst dat NIET (de meerderheid van de items): zoek zelf op Microsoft Learn / Microsoft Tech Community naar de exacte admin-instelling voor deze specifieke feature (zoekterm: featurenaam + "admin" of "policy" of "settings"). Vind je een concrete, actuele pagina die de locatie bevestigt: "bron":"webzoekopdracht", "bronUrl" naar die pagina, en "locatie"/"stappen" gebaseerd op wat die pagina zegt.
-- Levert de zoekopdracht niets bruikbaars op: val terug op "bron":"algemene kennis" met je beste inschatting op basis van platform en type wijziging, "bronUrl":null, en zet in "toelichting" ALTIJD: "Niet gevonden via zoekopdracht of in dit bericht, geschat op basis van algemene kennis - verifieer in het beheercentrum voor je dit in een RFC verwerkt."
-- "mogelijk":false alleen als expliciet blijkt (uit bericht of zoekopdracht) dat er geen adminbeheer/opt-out is, of het type wijziging inherent geen instelling kan hebben (bv. backend-only capaciteitsupdate). "stappen":[], "rollen":[] in dat geval - MAAR "bron" en "toelichting" blijven verplicht: zet "bron" op de bron van je conclusie dat er geen instelling is (meestal "algemene kennis" of "webzoekopdracht"), en leg in "toelichting" kort uit WAAROM er geen adminconfig is.
-- "rollen": bij "mogelijk":true de EXACTE, officiele Microsoft Entra ID / Microsoft 365 rolnaam die minimaal nodig is (bv. "Teams Administrator", "SharePoint Administrator", "Exchange Administrator", "Intune Administrator", "Security Administrator", "Global Administrator"), least privilege - noem Global Administrator alleen als er geen preciezere rol bestaat.
-- BELANGRIJK: "bron", "locatie", "stappen", "rollen" en "toelichting" zijn ALLEMAAL verplichte velden in de tool-call (mogen niet ontbreken). Bij "mogelijk":true moeten "locatie" en "stappen" ECHT een concrete waarde hebben - nooit leeg laten, ook niet als je onzeker bent: gebruik dan je beste inschatting met "bron":"algemene kennis" en het bijbehorende voorbehoud in "toelichting". Is er ondanks zoeken geen enkele rol te noemen, zet "rollen" dan op een lege lijst [] (dat mag wel leeg).
+WERKWIJZE
+- Schrijf ALTIJD in het Nederlands, direct en praktisch. Geen em-dash, geen marketingtaal uit het origineel, geen "ten eerste/tweede".
+- Schrijf de impact voor UWV, niet voor "alle organisaties". Leid af uit het tenantprofiel of iets van toepassing is: een feature die alleen voor SCCM, hybrid join of Copilot-licenties geldt, heeft voor UWV geen of beperkte impact, en dat zeg je dan expliciet.
+- Noem geen afdelingen, teams of eigenaren binnen UWV. De analyse is voor alle engineers.
+- De BRONGEGEVENS in het bericht zijn leidend voor datums, categorie en ernst. EndDateTime is de vervaldatum van het bericht, geen actiedeadline, tenzij de tekst dat zegt.
+- Roadmap ID('s) die bij de brongegevens staan zijn correct; verzin er geen andere bij.
+- Onzeker of ontbrekend in de bron? Zeg dat in het betreffende veld ("Niet gespecificeerd in het bericht") in plaats van te gokken."""
 
-Web search: je hebt een web_search tool tot je beschikking (beperkt tot learn.microsoft.com, techcommunity.microsoft.com, support.microsoft.com). Gebruik die niet alleen voor adminConfig, maar voor de hele analyse waar de brontekst te summier of gedateerd is:
-- omschrijvingIntro/omschrijvingBullets: zoek de officiele Microsoft Learn-pagina op als de brontekst kort of vaag is, en verwerk relevante details (hoe het precies werkt, voor wie, uitzonderingen) in de omschrijving.
-- impactTechnisch/impactFunctioneel/impactOrganisaties: check of er inmiddels een actuelere status is dan de brontekst suggereert (bv. een roadmap-item dat volgens de bron nog "in development" staat maar inmiddels "rolling out" is), en gebruik gevonden technische details (vereiste licenties, afhankelijkheden, voorwaarden) om de impact concreter te maken.
-- links: voeg elke bruikbare Microsoft Learn/Tech Community pagina die je vindt toe aan "links", ook als je 'm niet voor adminConfig gebruikt. Zet "geenSpecifiekeLearnPagina" alleen op true als een zoekopdracht ECHT niets relevants oplevert, niet omdat je niet gezocht hebt.
-- Gebruik in totaal maximaal 5 zoekopdrachten per item (adminConfig + de rest samen) om kosten en latency te beperken. Zoek gericht op wat je daadwerkelijk niet zeker weet, niet standaard bij elk veld.
+_PROMPT_ROLES = """- "rollen": de officiële Microsoft Entra-rolnaam die minimaal nodig is (least privilege), bv. "Teams Administrator", "Exchange Administrator", "Intune Administrator", "SharePoint Administrator", "Security Administrator", "AI Administrator". Global Administrator alleen als er niets preciezers bestaat.
+- "mogelijk":false alleen als expliciet blijkt dat er geen instelling of opt-out is; dan "stappen":[], "rollen":[] en in "toelichting" waarom.
+- Bij "mogelijk":true zijn "locatie" en "stappen" altijd concreet ingevuld."""
 
-BELANGRIJK - geen inline bronvermeldingen: zet NOOIT citation-markup zoals <cite index="...">, [1], (bron: ...) of vergelijkbare tags in de tekstvelden (omschrijvingIntro, omschrijvingBullets, impactTechnisch, impactFunctioneel, impactOrganisaties, etc). Schrijf gewoon vloeiende Nederlandse tekst. Bronnen horen uitsluitend thuis in het "links"-veld en "adminConfig.bronUrl", nergens anders."""
+_PROMPT_NOCITE = """GEEN INLINE BRONVERMELDINGEN
+Zet NOOIT citation-markup zoals (cite index="...">, [1] of (bron: ...) in tekstvelden."""
+
+# Stap 1: geen web search beschikbaar.
+SYSTEM_PROMPT = _PROMPT_CONTEXT + """
+- Je hebt in deze stap GEEN web search. Werk met het bericht, de brongegevens en je kennis. Zet in "links" alleen URL's die letterlijk in het bericht staan; verzin nooit een URL. Staan er geen, dan "links":[] en "geenSpecifiekeLearnPagina":true.
+- Rond ALTIJD af met precies één aanroep van de tool "return_analysis". Geen losse tekst als eindantwoord.
+
+ADMINCONFIG (alleen webweergave, niet in het document)
+- Staat de instelling met locatie in het bericht: "bron":"vermeld in bericht".
+- Anders: "bron":"algemene kennis", "bronUrl":null, je beste inschatting, en in "toelichting": "Niet vermeld in dit bericht, geschat op basis van algemene kennis. Verifieer in het beheercentrum voordat je dit doorvoert." Gebruik in deze stap nooit "webzoekopdracht".
+""" + _PROMPT_ROLES + "\n\n" + _PROMPT_NOCITE
+
+# Stap 2: verdiepen met web search, op basis van de analyse uit stap 1.
+ENRICH_SYSTEM_PROMPT = """Je bent een senior Microsoft 365 / Modern Workplace engineer. Je krijgt een Message Center-bericht en de bestaande analyse daarvan voor UWV. Je taak is die analyse te VERIFIËREN en AAN TE VULLEN met actuele informatie van het web. Je herschrijft de analyse niet.
+
+TENANTPROFIEL UWV:
+""" + TENANT_PROFILE + """
+
+WERKWIJZE
+- Gebruik de web_search tool (learn.microsoft.com, techcommunity.microsoft.com, support.microsoft.com). Zoek gericht: de exacte admin-instelling voor deze feature (featurenaam + "admin", "policy" of "settings"), en of er een actuelere uitrolstatus of datum is.
+- Schrijf in het Nederlands, geen em-dash. Noem geen afdelingen of eigenaren binnen UWV.
+- Rond ALTIJD af met precies één aanroep van de tool "return_enrichment".
+
+ADMINCONFIG
+- Gevonden op een actuele officiële pagina: "bron":"webzoekopdracht", "bronUrl" naar die pagina, "locatie" en "stappen" volgens die pagina.
+- Stond het al in het bericht en bevestigt het web dat: "bron":"vermeld in bericht".
+- Niets bruikbaars gevonden: "bron":"algemene kennis", "bronUrl":null, beste inschatting, en in "toelichting": "Niet gevonden via zoekopdracht of in dit bericht, geschat op basis van algemene kennis. Verifieer in het beheercentrum voordat je dit doorvoert."
+""" + _PROMPT_ROLES + """
+
+LINKS EN EXTRA INFORMATIE
+- "links": alleen pagina's die je in deze zoekopdrachten echt gevonden hebt. Nooit een URL verzinnen.
+- "extraInfo": concrete feiten van die pagina's die NIET in het bericht stonden en voor UWV relevant zijn (licentie-eisen, beperkingen, afhankelijkheden, bekende problemen). Geen herhaling van de analyse. Lege lijst als je niets nieuws vond.
+- "statusUpdate": alleen invullen als een officiële pagina een ACTUELERE datum of status geeft dan de analyse; anders beide velden null.
+
+""" + _PROMPT_NOCITE
 
 # ─── RETRY-BELEID ─────────────────────────────────────────────────────────────
 # De Anthropic-client retryt standaard zelf al 2x op 429/5xx/timeouts. Gecombineerd met
@@ -356,11 +506,14 @@ ROADMAP_SYSTEM_PROMPT = """Je bent een Microsoft 365 / Modern Workplace engineer
 
 Schrijf ALTIJD in het Nederlands. Geen em-dash. Geen inline citation-markup of tags zoals <cite>.
 
-Je hebt een web_search tool tot je beschikking (mc.merill.net, learn.microsoft.com, techcommunity.microsoft.com), gebruik die ACTIEF en specifiek om te bepalen of dit roadmap-item hoort bij, vooraf gaat aan, of effect heeft op een bestaand Message Center bericht:
+Bepaal of dit roadmap-item hoort bij, vooraf gaat aan, of effect heeft op een bestaand Message Center-bericht:
+- Je krijgt KANDIDATEN uit het eigen archief (MC-berichten met overlappende titelwoorden). Beoordeel die eerst: is het dezelfde feature? Dan is dat de match en hoef je niet te zoeken.
+- Past geen enkele kandidaat en heb je een web_search tool tot je beschikking (mc.merill.net, learn.microsoft.com, techcommunity.microsoft.com), gebruik die dan. Heb je geen web_search tool, dan is er geen match.
 - Zoek op mc.merill.net op de featurenaam/titel van dit roadmap-item om te checken of er al een bijbehorend MC-bericht is gepubliceerd (roadmap-items krijgen vaak later een los MC-nummer zodra een feature daadwerkelijk uitrolt).
 - Vind je een duidelijke match (zelfde feature, vergelijkbare titel/omschrijving): zet dat MC-nummer in "gerelateerdMcId" en leg in "mcRelatieUitleg" kort uit waarom (bv. "dit roadmap-item is de aankondiging, MC123456 is de uitrol-mededeling").
 - Vind je geen duidelijke match: "gerelateerdMcId":null en "mcRelatieUitleg":"Geen gerelateerd MC-bericht gevonden." Verzin nooit een MC-nummer.
-- Gebruik maximaal 3 zoekopdrachten voor dit onderdeel.
+- Gebruik maximaal 1 zoekopdracht voor dit onderdeel.
+- Gebruik de datum van vandaag om te beoordelen of genoemde periodes al voorbij zijn.
 
 Rond je antwoord ALTIJD af met precies één aanroep van de tool "return_roadmap_analysis":
 - omschrijving: 2-4 zinnen, in gewone taal, wat dit roadmap-item inhoudt - gebaseerd op de gegeven Summary/titel (en eventuele zoekresultaten), niet verzonnen.
@@ -368,10 +521,12 @@ Rond je antwoord ALTIJD af met precies één aanroep van de tool "return_roadmap
 - gerelateerdMcId: het MC-nummer (format "MC123456") als je via web_search een duidelijke match vond, anders null.
 - mcRelatieUitleg: korte toelichting op de MC-relatie zoals hierboven beschreven, altijd invullen (ook als er geen match is)."""
 
+# Roadmap draait op het lichte model; web search alleen als het eigen archief geen kandidaat
+# oplevert (of via de knop), en dan maximaal 1 zoekopdracht.
 ROADMAP_WEB_SEARCH_TOOL = {
     "type": "web_search_20250305",
     "name": "web_search",
-    "max_uses": 3,
+    "max_uses": 1,
     "allowed_domains": ["mc.merill.net", "learn.microsoft.com", "techcommunity.microsoft.com"],
 }
 
@@ -390,34 +545,61 @@ ROADMAP_TOOL = {
     },
 }
 
-def analyze_roadmap(client, item):
-    """Licht pad voor roadmap-items: geen scrape van een detailpagina en geen volledige
-    impact/adminConfig-analyse zoals analyze() - wel een gerichte web_search om een eventueel
-    gerelateerd MC-bericht te vinden. 2 pogingen (korter dan het MC-pad, want goedkoop/klein).
+_STOP = {"microsoft", "the", "and", "for", "with", "new", "now", "from", "your", "will", "support", "update", "updates", "in", "of", "to", "a", "on", "available"}
+def _words(t):
+    return {w for w in re.findall(r"[a-z0-9]{3,}", (t or "").lower()) if w not in _STOP}
+
+def mc_candidates(rm_title, limit=5):
+    """MC-berichten uit het eigen archief + live index met de meeste titel-overlap.
+    Goedkoper en betrouwbaarder dan elke keer web search, en het resultaat blijft verifieerbaar."""
+    target = _words(rm_title)
+    if not target: return []
+    pool = {}
+    for row in _get_db_archive("messageCenter"):
+        pool[row["mc_id"]] = row["title"] or ""
+    try:
+        for e in _get_json_cached("https://mc.merill.net/messages-index.json", "index"):
+            if str(e.get("Id", "")).startswith("MC"): pool[e["Id"]] = e.get("Title", "")
+    except Exception:
+        pass
+    scored = sorted(((len(target & _words(t)), mid, t) for mid, t in pool.items()), reverse=True)
+    return [(mid, t) for n, mid, t in scored if n >= 2][:limit]
+
+def analyze_roadmap(client, item, candidates=None, force_search=False):
+    """Licht pad voor roadmap-items op het lichte model: korte duiding plus koppeling aan een
+    MC-bericht. Kandidaten komen uit het eigen archief; web search (max 1) alleen als er geen
+    kandidaat is, of als de gebruiker er per item om vraagt. 2 pogingen.
     Bij falen: exception doorgooien zodat het item in progress["errors"] belandt en de volgende
     run 'm opnieuw probeert - een opgeslagen fallback-tekst zou als 'gereed' tellen en nooit
     meer opgepakt worden."""
     summary_text = re.sub(r"<[^>]+>", " ", item.get("summary") or "").strip()
     summary_text = re.sub(r"\s+", " ", summary_text)
-    text = (f"Roadmap ID: {item['id']}\nTitle: {item['title']}\nService: {item['service']}\n"
-            f"Status/categorie: {item.get('category','')}\n\nSummary:\n{summary_text[:4000] or '(geen summary beschikbaar)'}")
+    cand = "\n".join(f"- {mid}: {t}" for mid, t in (candidates or [])) or "- (geen kandidaten gevonden)"
+    text = (f"Datum van vandaag: {datetime.now().strftime('%Y-%m-%d')}\n\n"
+            f"Roadmap ID: {item['id']}\nTitle: {item['title']}\nService: {item['service']}\n"
+            f"Status/categorie: {item.get('category','')}\n\nSummary:\n{summary_text[:4000] or '(geen summary beschikbaar)'}\n\n"
+            f"KANDIDATEN uit eigen archief (titel-overlap, nog niet geverifieerd):\n{cand}")
     msg = None
     result = None
     last_err = None
+    spent = {}
+    use_search = force_search or (not candidates and WEB_SEARCH_MODE != "never")
+    kwargs = ({"tools": [ROADMAP_WEB_SEARCH_TOOL, ROADMAP_TOOL]} if use_search else
+              {"tools": [ROADMAP_TOOL], "tool_choice": {"type": "tool", "name": "return_roadmap_analysis"}})
     for attempt in range(2):
         try:
             msg = client.messages.create(
-                model="claude-sonnet-5",
-                max_tokens=1536,
+                model=LIGHT_MODEL,
+                max_tokens=1200,
                 system=ROADMAP_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": text}],
-                tools=[ROADMAP_WEB_SEARCH_TOOL, ROADMAP_TOOL],
-                timeout=90.0,
+                timeout=90.0, **kwargs,
             )
+            add_usage(spent, usage_of(msg, LIGHT_MODEL))
             tool_calls = [b for b in msg.content if getattr(b, "type", None) == "tool_use" and b.name == "return_roadmap_analysis"]
             if not tool_calls:
                 raise ValueError("Claude heeft geen return_roadmap_analysis tool-call teruggegeven")
-            result = dict(tool_calls[-1].input)
+            result = _postprocess(dict(tool_calls[-1].input))
             if not result.get("omschrijving"):
                 raise ValueError("omschrijving ontbreekt in roadmap-analyse")
             break
@@ -426,7 +608,9 @@ def analyze_roadmap(client, item):
             if attempt == 0:
                 time.sleep(2)
     if result is None:
-        raise RuntimeError(f"Roadmap-analyse mislukt na 2 pogingen: {last_err}")
+        err = RuntimeError(f"Roadmap-analyse mislukt na 2 pogingen: {last_err}")
+        err.spent_usage = spent
+        raise err
     result.update({
         "mcId": item["id"],
         "title": item["title"],
@@ -436,19 +620,13 @@ def analyze_roadmap(client, item):
         "category": item.get("category", ""),
         "isMajorChange": item.get("isMajorChange", False),
         "summaryRaw": summary_text,
+        "_webSearch": {"done": bool(spent.get("web_search_requests")), "at": datetime.now().isoformat(timespec="seconds"),
+                       "searches": spent.get("web_search_requests", 0)},
     })
-    usage_obj = getattr(msg, "usage", None) if msg is not None else None
-    if usage_obj is not None:
-        result["_usage"] = {
-            "input_tokens": getattr(usage_obj, "input_tokens", None),
-            "output_tokens": getattr(usage_obj, "output_tokens", None),
-            "cache_read_input_tokens": getattr(usage_obj, "cache_read_input_tokens", None),
-            "cache_creation_input_tokens": getattr(usage_obj, "cache_creation_input_tokens", None),
-            "web_search_requests": getattr(getattr(usage_obj, "server_tool_use", None), "web_search_requests", 0),
-        }
+    result["_usage"] = spent
     return result
 
-progress = {"run_id": None, "total": 0, "done": 0, "current": "", "running": False, "errors": [], "new_analyzed": []}
+progress = {"run_id": None, "total": 0, "done": 0, "current": "", "running": False, "errors": [], "new_analyzed": [], "usd": 0.0}
 
 # ─── SCRAPING ─────────────────────────────────────────────────────────────────
 # mc.merill.net is een Next.js app. De HTML-tabel op de homepage is een gemixte,
@@ -467,6 +645,26 @@ progress = {"run_id": None, "total": 0, "done": 0, "current": "", "running": Fal
 # verder terug kunt zoeken via de archive-data. Er is geen los "roadmap-archive.json";
 # roadmap-items zijn daarom beperkt tot wat er in messages-index.json zit (schommelt, geen
 # garantie op 100 stuks - als er te weinig zijn krijg je gewoon minder terug, geen foutmelding).
+
+def _parse_utc(v):
+    """ISO-datum naar aware UTC. Naive waarden (analyzed_at via datetime.now() op Railway)
+    worden als UTC behandeld."""
+    if not v: return None
+    try:
+        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    from datetime import timezone
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+def source_changed(raw_modified, summary_entry):
+    """True als Microsoft het bericht heeft bijgewerkt NA de analyse. Nieuwe analyses slaan de
+    bronwijzigingsdatum op (_sourceModified); voor oudere analyses vergelijken we met analyzed_at."""
+    if not summary_entry: return False
+    src = _parse_utc(raw_modified)
+    if not src: return False
+    ref = _parse_utc(summary_entry.get("source_modified")) or _parse_utc(summary_entry.get("analyzed_at"))
+    return bool(ref and src > ref)
 
 def _format_last_updated(entry):
     raw = entry.get("LastModifiedDateTime") or entry.get("StartDateTime") or ""
@@ -532,6 +730,7 @@ def fetch_mc_list(count):
             "category": entry.get("Category", ""),
             "isMajorChange": bool(entry.get("IsMajorChange", False)),
             "type": "messageCenter",
+            "lastModifiedRaw": entry.get("LastModifiedDateTime") or entry.get("StartDateTime") or "",
         })
         if len(items) >= count:
             break
@@ -567,17 +766,97 @@ def fetch_roadmap_list(count):
             "isMajorChange": bool(entry.get("IsMajorChange", False)),
             "type": "roadmap",
             "summary": entry.get("Summary", ""),
+            "lastModifiedRaw": entry.get("LastModifiedDateTime") or entry.get("StartDateTime") or "",
         })
     return items
 
-def fetch_item_text(item):
-    # Nooit item["url"] van de client: altijd opnieuw opbouwen uit het gevalideerde id (SSRF).
-    resp = requests.get(item_url(item["id"]), timeout=20)
+def _find_source_entry(mc_id):
+    """Brongegevens van een item, server-side opgezocht (nooit uit de client): eerst de
+    live bestanden van mc.merill.net (via de cache), daarna het eigen archief."""
+    for url, key in (("https://mc.merill.net/messages-index.json", "index"),
+                     ("https://mc.merill.net/messages-archive.json", "archive")):
+        try:
+            for e in _get_json_cached(url, key):
+                if e.get("Id") == mc_id:
+                    return e
+        except Exception as e:
+            log.warning(f"_find_source_entry: {key} niet beschikbaar: {e}")
+    try:
+        with db(RealDictCursor) as cur:
+            cur.execute("SELECT * FROM mc_archive WHERE mc_id=%s", (mc_id,))
+            row = cur.fetchone()
+        return _row_to_raw(row) if row else {}
+    except Exception:
+        return {}
+
+_CATEGORY_NL = {"planForChange": "Plan for Change", "stayInformed": "Stay Informed",
+                "preventOrFixIssue": "Prevent or Fix Issue"}
+
+def _date_only(v):
+    return (v or "")[:10] or "onbekend"
+
+def _clean_page_text(html):
+    """Alleen de berichtinhoud: navigatie, knoppen, scripts en voettekst eruit, lege regels samengevoegd."""
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "nav", "header", "footer", "aside", "form", "button", "svg", "noscript"]):
+        tag.decompose()
+    main = soup.find("main") or soup.find("article") or soup.body or soup
+    lines = [l.strip() for l in main.get_text(separator="\n").splitlines()]
+    out, prev = [], None
+    for l in lines:
+        if not l or l == prev:
+            continue
+        out.append(l); prev = l
+    return "\n".join(out)
+
+_RM_ID_PATTERNS = [
+    re.compile(r"Roadmap\s*ID[:#\s]*(\d{5,7})", re.I),
+    re.compile(r"microsoft-365/roadmap[^\s\"'<>]*?(?:id|featureid|searchterms)=(\d{5,7})", re.I),
+]
+
+def extract_roadmap_ids(text):
+    seen = []
+    for pat in _RM_ID_PATTERNS:
+        for m in pat.findall(text or ""):
+            if m not in seen:
+                seen.append(m)
+    return seen
+
+def roadmap_url(rm_number):
+    return f"https://www.microsoft.com/microsoft-365/roadmap?searchterms={rm_number}"
+
+def build_input_text(item):
+    """Wat Claude krijgt: de datum van vandaag, de harde brongegevens (leidend voor datums
+    en categorie), gevonden roadmap-ID's en de opgeschoonde berichttekst.
+    Geeft (tekst, meta) terug; meta wordt ook bij de analyse opgeslagen."""
+    mc_id = item["id"]
+    meta = _find_source_entry(mc_id) or {}
+    resp = requests.get(item_url(mc_id), timeout=20)  # nooit een client-URL (SSRF)
     resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
-    main = soup.find("main") or soup.find("article") or soup.body
-    text = main.get_text(separator="\n", strip=True)
-    return f"Message ID: {item['id']}\nTitle: {item['title']}\nService: {item['service']}\n\n{text[:8000]}"
+    body = _clean_page_text(resp.text)[:12000]
+    rm_ids = extract_roadmap_ids(resp.text + "\n" + body)
+    tags = ", ".join(meta.get("Tags") or []) or "geen"
+    services = ", ".join(meta.get("Services") or []) or item.get("service") or "onbekend"
+    lines = [
+        f"Datum van vandaag: {datetime.now().strftime('%Y-%m-%d')}",
+        "",
+        "BRONGEGEVENS (uit het Message Center; leidend voor datums, categorie en ernst):",
+        f"- Message ID: {mc_id}",
+        f"- Originele titel: {meta.get('Title') or item.get('title', '')}",
+        f"- Services: {services}",
+        f"- Categorie: {_CATEGORY_NL.get(meta.get('Category'), meta.get('Category') or 'onbekend')}",
+        f"- Major change: {'ja' if meta.get('IsMajorChange') else 'nee'}",
+        f"- Tags: {tags}",
+        f"- Gepubliceerd: {_date_only(meta.get('StartDateTime'))}",
+        f"- Laatst bijgewerkt door Microsoft: {_date_only(meta.get('LastModifiedDateTime'))}",
+        f"- Bericht verloopt op (EndDateTime, is GEEN actiedeadline tenzij de tekst dat zegt): {_date_only(meta.get('EndDateTime'))}",
+    ]
+    if meta.get("ActionRequiredByDateTime"):
+        lines.append(f"- Actie vereist voor: {_date_only(meta.get('ActionRequiredByDateTime'))}")
+    lines.append(f"- Roadmap ID('s) gevonden in de tekst: {', '.join(rm_ids) if rm_ids else 'geen'}")
+    lines += ["", "BERICHTTEKST:", body]
+    return "\n".join(lines), {"rm_ids": rm_ids,
+                              "source_modified": meta.get("LastModifiedDateTime") or meta.get("StartDateTime") or ""}
 
 def fetch_item_images(url):
     try:
@@ -599,192 +878,392 @@ def fetch_item_images(url):
         return []
 
 # ─── CLAUDE ───────────────────────────────────────────────────────────────────
-# web_search: laat Claude tijdens de analyse zelf op learn.microsoft.com / techcommunity
-# opzoeken wat actueel klopt - voor adminConfig, maar ook om de omschrijving en impact-
-# secties te verrijken/actualiseren i.p.v. alleen op getrainde kennis te vertrouwen.
-# Kost circa $0.01 per zoekopdracht (max_uses=5 per item = bovengrens, meestal minder),
-# dus bij een volledige run van 200+ items reken op een paar dollar extra Anthropic-kosten
-# bovenop de gewone tekstgeneratie - zie https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
+# Web search wordt alleen in stap 2 (verdiepen) gebruikt, zie WEB SEARCH-BELEID hierboven.
 WEB_SEARCH_TOOL = {
-    "type": "web_search_20250305",
+    "type": WEB_SEARCH_VERSION,
     "name": "web_search",
-    "max_uses": 5,
+    "max_uses": WEB_SEARCH_MAX_USES,
     "allowed_domains": ["learn.microsoft.com", "techcommunity.microsoft.com", "support.microsoft.com"],
 }
 
-# Forceert het output-formaat via een tool-schema i.p.v. te vertrouwen op "geef alleen JSON
-# terug" in de prompt - geen fragiele backtick-strip + json.loads() meer nodig. cache_control
-# staat op deze (laatste) tool, waarmee ook WEB_SEARCH_TOOL ervoor wordt meegecached.
+# Forceert het output-formaat via een tool-schema. De regels per veld staan in de
+# descriptions hieronder. cache_control op de tool cachet system prompt + schema tussen items.
+_ADMIN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "mogelijk": {"type": "boolean"},
+        "bron": {"type": "string", "enum": ["vermeld in bericht", "webzoekopdracht", "algemene kennis"]},
+        "bronUrl": {"type": ["string", "null"]},
+        "locatie": {"type": "string"},
+        "stappen": {"type": "array", "items": {"type": "string"}},
+        "rollen": {"type": "array", "items": {"type": "string"}},
+        "toelichting": {"type": "string"},
+    },
+    "required": ["mogelijk", "bron", "locatie", "stappen", "rollen", "toelichting"],
+}
+IMPACT_LEVELS = ["Geen impact", "Laag", "Middel", "Hoog"]
+_S = lambda d: {"type": "string", "description": d}
 ANALYSIS_TOOL = {
     "name": "return_analysis",
-    "description": "Retourneer de volledige gestructureerde analyse van dit Message Center of Roadmap item. Dit is altijd de allerlaatste stap - roep 'm pas aan als je klaar bent met eventueel zoeken.",
+    "description": "Retourneer de volledige gestructureerde analyse van dit Message Center-bericht. Altijd de allerlaatste stap, pas na eventueel zoeken.",
     "input_schema": {
         "type": "object",
         "properties": {
-            "mcId": {"type": "string"},
-            "title": {"type": "string"},
-            "platform": {"type": "string"},
-            "roadmapId": {"type": ["string", "null"]},
-            "roadmapUrl": {"type": "string"},
-            "planning": {"type": "array", "items": {"type": "string"}},
-            "oneLiner": {"type": "string", "description": "Compacte lopende alinea van circa 40-70 woorden (3-5 zinnen) die vooral uitlegt wat er verandert - geen losse structuur/labels, niet 1 kale zin maar ook geen lang verhaal."},
-            "omschrijvingIntro": {"type": "string"},
-            "omschrijvingBullets": {"type": "array", "items": {"type": "string"}},
-            "omschrijvingSlot": {"type": "string"},
-            "impactOrganisaties": {"type": "string"},
-            "impactTechnisch": {"type": "string"},
-            "impactFunctioneel": {"type": "string"},
-            "relevantieSCore": {"type": "integer", "minimum": 1, "maximum": 5},
-            "relevantieUitleg": {"type": "string"},
+            "mcId": _S("Het MC-nummer, bv. MC1474455."),
+            "platformTag": _S("Korte productnaam voor de documenttitel, bv. 'Teams', 'Exchange Online', 'Intune', 'SharePoint', 'Outlook', 'Defender', 'Purview', 'Entra', 'Copilot', 'Microsoft 365 Apps'."),
+            "title": _S("Nederlandse vertaling van de titel, zonder platformtag en zonder MC-nummer."),
+            "platform": _S("Betrokken dienst(en) of app(s), bv. 'Microsoft Teams / PowerPoint Live'."),
+            "roadmapId": {"type": ["string", "null"], "description": "Alleen een roadmap-ID uit de brongegevens of een gevonden officiële pagina, anders null."},
+            "roadmapUrl": _S("URL van het roadmap-item als er een roadmap-ID is, anders lege string."),
+            "targetedRelease": _S("Datum of periode voor Targeted Release met korte toelichting tussen haakjes, bv. 'begin november 2026 (eerste tenants)'. 'Niet gespecificeerd' als het bericht het niet noemt."),
+            "algemeenBeschikbaar": _S("Datum of periode voor algemene beschikbaarheid met korte toelichting, of de retirement-/einddatum. 'Niet gespecificeerd' als het bericht het niet noemt."),
+            "oneLiner": _S("Samenvatting voor Planner: één lopende alinea van 40 tot 70 woorden in gewone taal, bedoeld om voor te lezen in een overleg. Vooral WAT er verandert, voor wie en hoe het er in de praktijk uitziet. Geen labels, geen bullets, geen jargon zonder uitleg."),
+            "omschrijvingIntro": _S("Eén alinea: wat verandert er en waarom, in helder Nederlands."),
+            "omschrijvingBullets": {"type": "array", "items": {"type": "string"}, "description": "3 tot 6 concrete punten: wat verandert, wie het merkt, vanaf wanneer, randvoorwaarden of deadlines."},
+            "omschrijvingSlot": _S("Optionele afsluitende zin, of lege string."),
+            "impactNiveau": {"type": "string", "enum": IMPACT_LEVELS, "description": "Impact voor UWV. Geen impact: raakt de UWV-configuratie niet. Laag: zichtbaar, geen actie nodig. Middel: admin-actie aanbevolen of nieuwe feature die geconfigureerd kan worden. Hoog: verplichte actie, gedragswijziging voor eindgebruikers of compliance-risico."},
+            "impactOrganisaties": _S("Wat dit voor UWV als organisatie betekent. Eerste zin is de kern. Maximaal 4 zinnen."),
+            "impactTechnisch": _S("Wat er technisch verandert of vereist is (policies, Conditional Access, Intune, Defender, Purview, Entra), of expliciet 'Geen technische wijziging voor UWV.' Eerste zin is de kern. Maximaal 4 zinnen. Noem policy- en cmdlet-namen letterlijk."),
+            "impactFunctioneel": _S("Wat eindgebruikers en beheerders in de praktijk merken, inclusief verwachte vragen bij de servicedesk. Eerste zin is de kern. Maximaal 4 zinnen."),
+            "actieVereist": {"type": "boolean", "description": "true als UWV iets moet doen (configureren, communiceren, voorbereiden) om ongewenste gevolgen te voorkomen of een deadline te halen."},
+            "actieOmschrijving": _S("Bij actieVereist: de concrete actie in 1 tot 3 zinnen, met portaalpad of PowerShell-cmdlet. Anders lege string."),
+            "actieDeadline": {"type": ["string", "null"], "description": "Datum waarop de actie uiterlijk gedaan moet zijn, alleen als het bericht die noemt. Anders null."},
+            "risicos": {"type": "array", "items": {"type": "string"}, "description": "0 tot 4 concrete risico's of aandachtspunten voor UWV (security, compliance, afhankelijkheden, terugdraaibaarheid, gebruikersverwarring). Elk één zin. Lege lijst als er echt geen zijn."},
+            "kansen": {"type": "array", "items": {"type": "string"}, "description": "0 tot 3 concrete kansen of voordelen voor UWV. Elk één zin. Lege lijst als er geen zijn."},
+            "copilotImpact": {
+                "type": "object",
+                "description": "Alleen inhoudelijk invullen als het bericht Copilot of AI expliciet noemt; beoordeel dan voor de UWV-situatie (alleen Copilot Chat via het web, geen breed uitgerolde M365 Copilot-licenties, geen agents).",
+                "properties": {
+                    "vanToepassing": {"type": "boolean", "description": "true alleen als het bericht Copilot of AI expliciet noemt."},
+                    "niveau": {"type": "string", "enum": IMPACT_LEVELS},
+                    "toelichting": _S("Bij vanToepassing: wat dit betekent voor Copilot Chat via het web en voor de beheerinstellingen, en of het alleen tenants met licenties of agents raakt. Anders: 'Niet van toepassing op dit bericht.'"),
+                    "actieVereist": {"type": "boolean"},
+                },
+                "required": ["vanToepassing", "toelichting"],
+            },
+            "relevantieSCore": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Relevantie voor UWV. 1: raakt UWV niet (bv. alleen voor licenties of features die UWV niet heeft). 2: zichtbaar maar zonder gevolgen. 3: merkbaar voor gebruikers of beheerders, geen actie nodig. 4: actie of communicatie aanbevolen. 5: verplichte actie met deadline, of gedrags-/securitywijziging met directe impact."},
+            "relevantieUitleg": _S("Eén of twee zinnen waarom deze score, specifiek voor UWV."),
             "links": {
                 "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {"label": {"type": "string"}, "url": {"type": ["string", "null"]}},
-                    "required": ["label"],
-                },
+                "items": {"type": "object", "properties": {"label": {"type": "string"}, "url": {"type": ["string", "null"]}}, "required": ["label"]},
+                "description": "Officiële Microsoft Learn- en Tech Community-pagina's die je gevonden hebt. Nooit een URL verzinnen.",
             },
             "geenSpecifiekeLearnPagina": {"type": "boolean"},
-            "adminConfig": {
-                "type": "object",
-                "properties": {
-                    "mogelijk": {"type": "boolean"},
-                    "bron": {"type": "string", "enum": ["vermeld in bericht", "webzoekopdracht", "algemene kennis"]},
-                    "bronUrl": {"type": ["string", "null"]},
-                    "locatie": {"type": "string"},
-                    "stappen": {"type": "array", "items": {"type": "string"}},
-                    "rollen": {"type": "array", "items": {"type": "string"}},
-                    "toelichting": {"type": "string"},
-                },
-                "required": ["mogelijk", "bron", "locatie", "stappen", "rollen", "toelichting"],
-            },
+            "adminConfig": _ADMIN_SCHEMA,
         },
-        "required": ["mcId", "title", "platform", "planning", "oneLiner", "omschrijvingIntro", "impactOrganisaties",
-                     "impactTechnisch", "impactFunctioneel", "relevantieSCore", "relevantieUitleg", "adminConfig"],
+        "required": ["mcId", "platformTag", "title", "platform", "targetedRelease", "algemeenBeschikbaar", "oneLiner",
+                     "omschrijvingIntro", "omschrijvingBullets", "impactNiveau", "impactOrganisaties", "impactTechnisch",
+                     "impactFunctioneel", "actieVereist", "actieOmschrijving", "risicos", "kansen", "copilotImpact",
+                     "relevantieSCore", "relevantieUitleg", "adminConfig"],
     },
     "cache_control": {"type": "ephemeral"},
 }
 
+ENRICH_TOOL = {
+    "name": "return_enrichment",
+    "description": "Retourneer de geverifieerde adminconfig, gevonden links en aanvullende feiten. Altijd de allerlaatste stap, na het zoeken.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "adminConfig": _ADMIN_SCHEMA,
+            "links": {"type": "array", "items": {"type": "object", "properties": {"label": {"type": "string"}, "url": {"type": "string"}}, "required": ["label", "url"]},
+                      "description": "Officiële pagina's die je in deze zoekopdrachten gevonden hebt."},
+            "extraInfo": {"type": "array", "items": {"type": "string"}, "description": "0 tot 4 concrete feiten uit de gevonden pagina's die niet in het bericht stonden. Elk één zin."},
+            "statusUpdate": {"type": "object", "properties": {
+                "targetedRelease": {"type": ["string", "null"]}, "algemeenBeschikbaar": {"type": ["string", "null"]}},
+                "description": "Alleen invullen als een officiële pagina een actuelere datum of status geeft dan de analyse; anders null."},
+        },
+        "required": ["adminConfig", "links", "extraInfo"],
+    },
+    "cache_control": {"type": "ephemeral"},
+}
+
+def enrich_with_search(client, source_text, analysis):
+    """Stap 2: verifieer en verrijk een bestaande analyse met web search. Past `analysis`
+    ter plekke aan (adminConfig, links, extraInfo, eventueel planning) en geeft de usage terug.
+    Wordt automatisch gebruikt bij relevante items en door de knop 'Web search' per item."""
+    brief = {k: analysis.get(k) for k in ("mcId", "title", "platform", "targetedRelease", "algemeenBeschikbaar",
+                                          "omschrijvingIntro", "impactTechnisch", "adminConfig") if analysis.get(k) is not None}
+    user = (source_text + "\n\nBESTAANDE ANALYSE (te verifiëren en aan te vullen):\n"
+            + json.dumps(brief, ensure_ascii=False, indent=1))
+    spent, last_err = {}, None
+    for attempt in range(2):
+        try:
+            msg = client.messages.create(
+                model=ANALYSIS_MODEL, max_tokens=2500,
+                system=[{"type": "text", "text": ENRICH_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": user}],
+                tools=[WEB_SEARCH_TOOL, ENRICH_TOOL], timeout=180.0,
+            )
+            add_usage(spent, usage_of(msg, ANALYSIS_MODEL))
+            calls = [b for b in msg.content if getattr(b, "type", None) == "tool_use" and b.name == "return_enrichment"]
+            if not calls:
+                raise ValueError("Claude heeft geen return_enrichment tool-call teruggegeven")
+            e = _postprocess(dict(calls[-1].input))
+            ac = e.get("adminConfig")
+            if not isinstance(ac, dict) or not ac.get("bron") or not ac.get("toelichting"):
+                raise ValueError("adminConfig ontbreekt of is onvolledig in de verdieping")
+            if ac.get("mogelijk") is True and (not ac.get("locatie") or not ac.get("stappen")):
+                raise ValueError("adminConfig.locatie/stappen leeg terwijl mogelijk:true")
+            analysis["adminConfig"] = ac
+            # Links samenvoegen op URL: bestaande blijven staan, nieuwe erbij.
+            seen, merged = set(), []
+            for l in (analysis.get("links") or []) + (e.get("links") or []):
+                url = (l or {}).get("url") if isinstance(l, dict) else None
+                if _safe_http(url) and url not in seen:
+                    seen.add(url); merged.append({"label": l.get("label") or "Bron", "url": url})
+            analysis["links"] = merged
+            analysis["geenSpecifiekeLearnPagina"] = not merged
+            analysis["extraInfo"] = [x for x in (e.get("extraInfo") or []) if isinstance(x, str) and x.strip()][:4]
+            su = e.get("statusUpdate") or {}
+            for k in ("targetedRelease", "algemeenBeschikbaar"):
+                if isinstance(su.get(k), str) and su[k].strip():
+                    analysis[k] = su[k].strip()
+            analysis["_webSearch"] = {"done": True, "at": datetime.now().isoformat(timespec="seconds"),
+                                      "searches": spent.get("web_search_requests", 0)}
+            return spent
+        except RETRYABLE_ERRORS as err:
+            last_err = err
+            log.info(f"verdiepen poging {attempt+1} mislukt: {err}")
+            if attempt == 0: time.sleep(2)
+    last_err.spent_usage = spent
+    raise last_err
+
+def repair_oneliner(client, text):
+    """Herschrijft ALLEEN de samenvatting naar 40-70 woorden met het lichte model. Kost een
+    fractie van een cent; voorheen draaide hiervoor de hele analyse (met zoekopdrachten) opnieuw."""
+    msg = client.messages.create(
+        model=LIGHT_MODEL, max_tokens=400, timeout=60.0,
+        system="Je herschrijft één Nederlandse alinea. Geef ALLEEN de herschreven alinea terug, zonder inleiding, aanhalingstekens, labels of opsommingstekens.",
+        messages=[{"role": "user", "content":
+            "Herschrijf deze samenvatting naar 40 tot 70 woorden. Behoud de inhoud en de feiten, in gewone taal, "
+            "één lopende alinea, geen em-dash. Leg vooral uit WAT er verandert en voor wie.\n\n" + text}],
+    )
+    out = " ".join(getattr(b, "text", "") for b in msg.content if getattr(b, "type", None) == "text").strip()
+    return _clean_str(out), usage_of(msg, LIGHT_MODEL)
+
+def wants_web_search(analysis, item=None):
+    """Stap 2 automatisch? Altijd bij de knop; verder volgens WEB_SEARCH_MODE."""
+    if item and item.get("websearch"): return True
+    if WEB_SEARCH_MODE == "always": return True
+    if WEB_SEARCH_MODE == "never": return False
+    return (analysis.get("relevantieSCore") or 0) >= WEB_SEARCH_MIN_SCORE or analysis.get("actieVereist") is True
+
+# ─── NABEWERKING ──────────────────────────────────────────────────────────────
+# Vangnet voor huisregels die alleen in de prompt stonden: geen em/en-dashes en geen
+# citation-markup in tekstvelden. Werkt recursief op alle strings in het resultaat.
+# Alleen de markering zelf weghalen, nooit de tekst ertussen: (cite index="1-2">tekst</cite> -> tekst
+_CITE_RE = re.compile(r'</?cite[^>]*>|\(cite index="[^"]*"\)?>?|\[\d{1,2}\]', re.I)
+def _clean_str(v):
+    v = _CITE_RE.sub("", v)
+    v = v.replace(" — ", " - ").replace("—", " - ").replace(" – ", " - ")
+    v = re.sub(r"[ \t]{2,}", " ", v)
+    return re.sub(r"[ \t]+([.,;:!?])", r"\1", v).strip()
+
+def _postprocess(obj):
+    if isinstance(obj, str): return _clean_str(obj)
+    if isinstance(obj, list): return [_postprocess(x) for x in obj]
+    if isinstance(obj, dict): return {k: (_postprocess(v) if k not in ("bronUrl", "url", "roadmapUrl") else v) for k, v in obj.items()}
+    return obj
+
 def _validate_analysis(a):
-    """Lichte veiligheidscheck voor het opslaan - de tool-schema hierboven stuurt Claude al
-    de goede kant op, maar garandeert niet 100% dat elk veld het juiste type heeft. Een fout
-    hier triggert een retry in analyze() i.p.v. een kapotte docx of frontend-crash later."""
+    """Veiligheidscheck voor het opslaan. Een fout triggert een retry in analyze()."""
     for field in ("mcId", "title", "platform", "relevantieUitleg", "oneLiner", "omschrijvingIntro",
-                  "impactOrganisaties", "impactTechnisch", "impactFunctioneel"):
-        if not a.get(field):
+                  "impactOrganisaties", "impactTechnisch", "impactFunctioneel",
+                  "targetedRelease", "algemeenBeschikbaar"):
+        if not a.get(field) or not isinstance(a.get(field), str):
             raise ValueError(f"Verplicht veld ontbreekt of is leeg: {field}")
-    if not a.get("planning"):
-        raise ValueError("Verplicht veld ontbreekt of is leeg: planning")
     score = a.get("relevantieSCore")
     if not isinstance(score, int) or not (1 <= score <= 5):
         raise ValueError(f"relevantieSCore ongeldig: {score!r}")
-    if "links" in a and a["links"] is not None and not isinstance(a["links"], list):
-        raise ValueError("links moet een lijst zijn")
+    if a.get("impactNiveau") not in IMPACT_LEVELS:
+        raise ValueError(f"impactNiveau ongeldig: {a.get('impactNiveau')!r}")
+    if not isinstance(a.get("actieVereist"), bool):
+        raise ValueError("actieVereist moet true/false zijn")
+    if a.get("actieVereist") and not a.get("actieOmschrijving"):
+        raise ValueError("actieOmschrijving ontbreekt terwijl actieVereist true is")
+    for field in ("omschrijvingBullets", "risicos", "kansen", "links"):
+        if field in a and a[field] is not None and not isinstance(a[field], list):
+            raise ValueError(f"{field} moet een lijst zijn")
+    ci = a.get("copilotImpact")
+    if not isinstance(ci, dict) or not isinstance(ci.get("vanToepassing"), bool) or not ci.get("toelichting"):
+        raise ValueError("copilotImpact ontbreekt of is onvolledig")
     ac = a.get("adminConfig")
-    if ac is not None and not isinstance(ac, dict):
+    if not isinstance(ac, dict):
         raise ValueError("adminConfig moet een object zijn")
-    if isinstance(ac, dict):
-        if not ac.get("bron"):
-            raise ValueError("adminConfig.bron ontbreekt of is leeg")
-        if not ac.get("toelichting"):
-            raise ValueError("adminConfig.toelichting ontbreekt of is leeg")
-        if ac.get("mogelijk") is True:
-            # Bij mogelijk:true moet de locatie/stappen ECHT ingevuld zijn - alleen bij
-            # mogelijk:false mogen die conform de system prompt leeg ([]/"") blijven.
-            if not ac.get("locatie"):
-                raise ValueError("adminConfig.locatie ontbreekt of is leeg terwijl mogelijk:true")
-            if not ac.get("stappen"):
-                raise ValueError("adminConfig.stappen ontbreekt of is leeg terwijl mogelijk:true")
-    if "omschrijvingBullets" in a and a["omschrijvingBullets"] is not None and not isinstance(a["omschrijvingBullets"], list):
-        raise ValueError("omschrijvingBullets moet een lijst zijn")
-    if "planning" in a and a["planning"] is not None and not isinstance(a["planning"], list):
-        raise ValueError("planning moet een lijst zijn")
+    if not ac.get("bron") or not ac.get("toelichting"):
+        raise ValueError("adminConfig.bron/toelichting ontbreekt")
+    if ac.get("mogelijk") is True and (not ac.get("locatie") or not ac.get("stappen")):
+        raise ValueError("adminConfig.locatie/stappen leeg terwijl mogelijk:true")
+
+ONELINER_MIN_WORDS, ONELINER_MAX_WORDS = 30, 95
 
 def analyze(client, text):
-    """3 pogingen met exponentiele backoff (2s, 4s), maar ALLEEN op RETRYABLE_ERRORS:
-    een 401/400 of een onbekende fout gaat direct door naar progress["errors"]."""
+    """Stap 1: volledige analyse ZONDER web search. Maximaal 3 pogingen, alleen op
+    RETRYABLE_ERRORS. Een samenvatting buiten de woordgrens wordt goedkoop gerepareerd met
+    het lichte model in plaats van de hele analyse te herhalen."""
     last_err = None
+    spent = {}   # tokens van ALLE pogingen, ook mislukte: die zijn wel gefactureerd
     for attempt in range(3):
         try:
             msg = client.messages.create(
-                model="claude-sonnet-5",
-                max_tokens=4096,
+                model=ANALYSIS_MODEL,
+                max_tokens=5000,
                 system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": text}],
-                tools=[WEB_SEARCH_TOOL, ANALYSIS_TOOL],
-                # 5 web searches + 4096 output tokens past niet altijd in 90s; een timeout
-                # wordt wel gefactureerd en daarna opnieuw geprobeerd, dus liever ruim.
-                timeout=180.0,
+                tools=[ANALYSIS_TOOL],
+                tool_choice={"type": "tool", "name": "return_analysis"},
+                timeout=120.0,
             )
+            add_usage(spent, usage_of(msg, ANALYSIS_MODEL))
             tool_calls = [b for b in msg.content if getattr(b, "type", None) == "tool_use" and b.name == "return_analysis"]
             if not tool_calls:
                 raise ValueError("Claude heeft geen return_analysis tool-call teruggegeven")
-            result = tool_calls[-1].input
+            result = _postprocess(dict(tool_calls[-1].input))
+            # Zonder web search kan de bron geen zoekopdracht zijn.
+            if isinstance(result.get("adminConfig"), dict) and result["adminConfig"].get("bron") == "webzoekopdracht":
+                result["adminConfig"]["bron"] = "algemene kennis"; result["adminConfig"]["bronUrl"] = None
             _validate_analysis(result)
-            usage = getattr(msg, "usage", None)
-            if usage is not None:
-                result["_usage"] = {
-                    "input_tokens": getattr(usage, "input_tokens", None),
-                    "output_tokens": getattr(usage, "output_tokens", None),
-                    "cache_read_input_tokens": getattr(usage, "cache_read_input_tokens", None),
-                    "cache_creation_input_tokens": getattr(usage, "cache_creation_input_tokens", None),
-                    "web_search_requests": getattr(getattr(usage, "server_tool_use", None), "web_search_requests", 0),
-                }
+            words = len(result["oneLiner"].split())
+            if not (ONELINER_MIN_WORDS <= words <= ONELINER_MAX_WORDS):
+                try:
+                    fixed, u = repair_oneliner(client, result["oneLiner"])
+                    add_usage(spent, u)
+                    if fixed and ONELINER_MIN_WORDS <= len(fixed.split()) <= ONELINER_MAX_WORDS:
+                        result["oneLiner"] = fixed
+                    else:
+                        log.info(f"samenvatting na reparatie nog {len(fixed.split())} woorden, origineel behouden")
+                except Exception as e:
+                    log.info(f"reparatie samenvatting mislukt, origineel behouden: {e}")
+            result["_webSearch"] = {"done": False}
+            result["_usage"] = spent
             return result
         except RETRYABLE_ERRORS as e:
             last_err = e
+            log.info(f"analyze poging {attempt+1} mislukt: {e}")
             if attempt < 2:
                 time.sleep(2 ** (attempt + 1))
                 continue
+    last_err.spent_usage = spent   # zodat run_analysis ook de kosten van een mislukt item logt
     raise last_err
 
 # ─── DOCX ─────────────────────────────────────────────────────────────────────
+# Vast UWV-format (gelijk aan de uwv-message-center skill): platte tekst, vetgedrukte labels,
+# lege regel tussen secties, echte hyperlinks, A4. adminConfig, actie, risico's/kansen en
+# Copilot staan bewust NIET in het document; dat is extra context voor de webweergave.
+from docx.shared import Cm, RGBColor
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+import unicodedata
+
+def doc_title(a):
+    tag = (a.get("platformTag") or "").strip()
+    title = (a.get("title") or "").strip()
+    mc = a.get("mcId") or ""
+    return f"{('[' + tag + '] ') if tag else ''}{title}{(' [' + mc + ']') if mc else ''}".strip()
+
+def docx_filename(mc_id, a):
+    raw = unicodedata.normalize("NFKD", a.get("title") or "").encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")[:60].rstrip("-") or "analyse"
+    return f"{mc_id}_{slug}.docx"
+
+def mc_admin_link(mc_id):
+    return f"https://admin.microsoft.com/Adminportal/Home#/MessageCenter/:/messages/{mc_id}"
+
+def _add_hyperlink(paragraph, url, text, size=Pt(11)):
+    """Echte klikbare hyperlink (python-docx heeft hier geen publieke API voor)."""
+    r_id = paragraph.part.relate_to(url, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", is_external=True)
+    link = OxmlElement("w:hyperlink"); link.set(qn("r:id"), r_id)
+    run = OxmlElement("w:r"); rpr = OxmlElement("w:rPr")
+    color = OxmlElement("w:color"); color.set(qn("w:val"), "0563C1"); rpr.append(color)
+    u = OxmlElement("w:u"); u.set(qn("w:val"), "single"); rpr.append(u)
+    sz = OxmlElement("w:sz"); sz.set(qn("w:val"), str(int(size.pt * 2))); rpr.append(sz)
+    run.append(rpr)
+    t = OxmlElement("w:t"); t.text = text; t.set(qn("xml:space"), "preserve"); run.append(t)
+    link.append(run); paragraph._p.append(link)
+
+def _safe_http(u):
+    return u if isinstance(u, str) and re.match(r"^https?://", u.strip(), re.I) else None
+
 def build_docx(a, path):
     doc = Document()
-    def bp(t): p = doc.add_paragraph(); r = p.add_run(t); r.bold = True; r.font.size = Pt(11)
-    def np(t):
-        if not t: doc.add_paragraph(); return
-        p = doc.add_paragraph(); r = p.add_run(t); r.font.size = Pt(11)
-    def lp(l, v):
-        p = doc.add_paragraph()
-        r1 = p.add_run(l); r1.bold = True; r1.font.size = Pt(11)
-        r2 = p.add_run(v or ""); r2.font.size = Pt(11)
-    def bl(t):
-        p = doc.add_paragraph(style="List Bullet"); r = p.add_run(t); r.font.size = Pt(11)
+    sec = doc.sections[0]
+    sec.page_width, sec.page_height = Cm(21.0), Cm(29.7)
+    for side in ("left_margin", "right_margin", "top_margin", "bottom_margin"):
+        setattr(sec, side, Cm(1.8))
+    base = doc.styles["Normal"]; base.font.size = Pt(11)
 
-    p = doc.add_paragraph(); r = p.add_run(a.get("title", "")); r.bold = True; r.font.size = Pt(12)
-    doc.add_paragraph()
-    bp("Platform:"); np(a.get("platform", ""))
-    doc.add_paragraph()
-    bp("Link naar Microsoft (Roadmap ID + URL):")
-    np(f"Roadmap ID: {a.get('roadmapId') or 'niet van toepassing'}")
-    if a.get("roadmapUrl"): np(a["roadmapUrl"])
-    doc.add_paragraph()
-    bp("Link naar Teams taak:"); np(f"Planner - {a.get('title', '')}")
-    doc.add_paragraph()
-    bp("Planning:")
-    for l in (a.get("planning") or []): np(l)
-    doc.add_paragraph()
-    bp("Omschrijving wijziging:")
-    if a.get("omschrijvingIntro"): np(a["omschrijvingIntro"])
-    if a.get("omschrijvingBullets"):
-        doc.add_paragraph()
-        for b in a["omschrijvingBullets"]: bl(b)
-    if a.get("omschrijvingSlot"): doc.add_paragraph(); np(a["omschrijvingSlot"])
-    doc.add_paragraph()
-    bp("Impactanalyse:")
-    lp("Impact voor organisaties: ", a.get("impactOrganisaties", ""))
-    lp("Technische impact: ", a.get("impactTechnisch", ""))
-    lp("Functionele impact: ", a.get("impactFunctioneel", ""))
-    doc.add_paragraph()
-    bp("Links:")
-    if a.get("geenSpecifiekeLearnPagina"):
-        np("Geen specifieke Microsoft Learn-pagina voor deze update gevonden. Hieronder de meest relevante officiële bronnen.")
-        doc.add_paragraph()
-    for link in (a.get("links") or []):
-        bp(f"{link.get('label', '')}:")
-        np(link.get("url") or "Microsoft Message Center")
-        doc.add_paragraph()
+    def para(keep=False):
+        p = doc.add_paragraph(); p.paragraph_format.space_after = Pt(0)
+        if keep: p.paragraph_format.keep_with_next = True
+        return p
+    def spacer(): para()
+    def label(t):
+        r = para(keep=True).add_run(t); r.bold = True
+    def text(t):
+        para().add_run(t or "")
+    def label_inline(l, v):
+        p = para(); r1 = p.add_run(l); r1.bold = True; p.add_run(v or "")
+    def bullet(t):
+        p = doc.add_paragraph(style="List Bullet"); p.paragraph_format.space_after = Pt(0); p.add_run(t)
+
+    mc_id = a.get("mcId") or ""
+    title = doc_title(a)
+
+    # 1. Titel
+    p = para(keep=True); r = p.add_run(title); r.bold = True; r.font.size = Pt(13)
+    spacer()
+    # 2. Platform
+    label("Platform:"); text(a.get("platform", "")); spacer()
+    # 3. Roadmap
+    label("Link naar Microsoft (Roadmap ID + URL):")
+    p = para()
+    rm, rm_url = a.get("roadmapId"), _safe_http(a.get("roadmapUrl"))
+    if rm:
+        p.add_run(f"Roadmap ID: {rm}" + (" - " if rm_url else ""))
+        if rm_url: _add_hyperlink(p, rm_url, rm_url)
+    else:
+        p.add_run("Roadmap ID: niet van toepassing")
+    spacer()
+    # 4. Teams-taak
+    label("Link naar Teams taak:"); text(f"Planner - {title}"); spacer()
+    # 5. Planning (nieuw formaat, met terugval op de oude vrije lijst)
+    label("Planning:")
+    if a.get("targetedRelease") or a.get("algemeenBeschikbaar"):
+        text(f"Targeted Release: {a.get('targetedRelease') or 'Niet gespecificeerd'}")
+        text(f"Algemeen beschikbaar: {a.get('algemeenBeschikbaar') or 'Niet gespecificeerd'}")
+    else:
+        for l in (a.get("planning") or []): text(l)
+    spacer()
+    # 6. Omschrijving
+    label("Omschrijving wijziging:")
+    if a.get("omschrijvingIntro"): text(a["omschrijvingIntro"])
+    bullets = a.get("omschrijvingBullets") or []
+    if isinstance(bullets, str): bullets = [bullets]
+    for b in bullets: bullet(b)
+    if a.get("omschrijvingSlot"): text(a["omschrijvingSlot"])
+    spacer()
+    # 7. Impactanalyse
+    label("Impactanalyse:")
+    niveau = a.get("impactNiveau")
+    label_inline("Impact voor organisaties: ", (f"{niveau} - " if niveau else "") + (a.get("impactOrganisaties") or ""))
+    label_inline("Technische impact: ", a.get("impactTechnisch", ""))
+    label_inline("Functionele impact: ", a.get("impactFunctioneel", ""))
+    spacer()
+    # 8. Links
+    label("Links:")
+    links = [l for l in (a.get("links") or []) if isinstance(l, dict)]
+    good = [(l.get("label") or "Bron", _safe_http(l.get("url"))) for l in links if _safe_http(l.get("url"))]
+    if good:
+        for lbl, url in good:
+            p = para(); p.add_run(f"{lbl}: "); _add_hyperlink(p, url, url)
+    else:
+        text("Geen aanvullende Microsoft Learn-pagina gevonden voor deze specifieke update.")
+    spacer()
+    # 9. Message Center deeplink
+    if mc_id:
+        label(f"Microsoft Message Center - {mc_id}:")
+        p = para(); _add_hyperlink(p, mc_admin_link(mc_id), "Microsoft Message Center")
     doc.save(str(path))
 
 # ─── TEAMS NOTIFICATIE ────────────────────────────────────────────────────────
@@ -842,14 +1321,14 @@ def send_teams_notification(webhook_url, new_items):
 # Eén lock + een run_id per run. Zonder dit: (a) een crash buiten de try liet
 # running=True staan zodat elke volgende run "Al bezig" kreeg tot een handmatige reset,
 # (b) een /api/reset tijdens een run liet de oude thread na zijn huidige item nog
-# running=False schrijven in de NIEUWE run, (c) de UI-run en de geplande run konden
+# running=False schrijven in de NIEUWE run, (c) twee runs konden
 # tegelijk starten (check-then-set zonder lock).
 PROGRESS_LOCK = threading.Lock()
 
 def _reset_progress_locked(run_id=None, total=0, running=False):
     progress.clear()
     progress.update({"run_id": run_id, "total": total, "done": 0, "current": "",
-                     "running": running, "errors": [], "new_analyzed": []})
+                     "running": running, "errors": [], "new_analyzed": [], "usd": 0.0})
 
 def try_start_run(api_key, items, force, webhook_url=""):
     """Claimt atomisch de 'running'-vlag en start de thread. Geeft (ok, foutmelding)."""
@@ -864,6 +1343,13 @@ def try_start_run(api_key, items, force, webhook_url=""):
 
 def _still_current(run_id):
     return progress.get("run_id") == run_id and progress.get("running")
+
+def _add_run_cost(run_id, usage):
+    """Telt de geschatte kosten van één item op bij de lopende run (voor de voortgangsbalk)."""
+    if not usage: return
+    with PROGRESS_LOCK:
+        if progress.get("run_id") == run_id:
+            progress["usd"] = round(float(progress.get("usd") or 0) + cost_usd(usage), 4)
 
 def run_analysis(api_key, items, force, webhook_url="", run_id=None):
     # max_retries=0: de retry-logica zit bewust in analyze()/analyze_roadmap() (zie RETRYABLE_ERRORS).
@@ -889,7 +1375,9 @@ def run_analysis(api_key, items, force, webhook_url="", run_id=None):
                         progress["done"] += 1
                 continue
             progress["current"] = mc_id
-            if not force and mc_id in state:
+            # item["reanalyze"]: per item geforceerd (bv. bron gewijzigd na de vorige analyse).
+            # item["websearch"]: de knop "Web search" - bestaande analyse verdiepen, niet overslaan.
+            if not force and not item.get("reanalyze") and not item.get("websearch") and mc_id in state:
                 with PROGRESS_LOCK:
                     if _still_current(run_id): progress["done"] += 1
                 continue
@@ -900,27 +1388,74 @@ def run_analysis(api_key, items, force, webhook_url="", run_id=None):
                 item["url"] = item_url(mc_id)
                 item.setdefault("title", mc_id)
                 item.setdefault("service", "")
+                existing = state.get(mc_id)
+                enrich_only = bool(item.get("websearch") and existing and existing.get("analysis")
+                                   and not force and not item.get("reanalyze") and not is_roadmap)
                 if is_roadmap:
                     # Licht pad: geen scrape, geen impact/adminConfig, geen docx - zie analyze_roadmap().
-                    result = analyze_roadmap(client, item)
+                    result = analyze_roadmap(client, item, candidates=mc_candidates(item["title"]),
+                                             force_search=bool(item.get("websearch")))
+                    result["_sourceModified"] = (_find_source_entry(mc_id) or {}).get("LastModifiedDateTime") or ""
                     usage = result.pop("_usage", None)
                     analyzed_at = datetime.now().isoformat()
                     save_analysis(mc_id, item["title"], None, analyzed_at, result)
                     save_usage(mc_id, analyzed_at, usage)
+                    _add_run_cost(run_id, usage)
+                    time.sleep(1)
+                elif enrich_only:
+                    # Knop "Web search" op een bestaande analyse: alleen stap 2, de analyse zelf blijft staan.
+                    text, _meta = build_input_text(item)
+                    result = dict(existing["analysis"])
+                    usage = enrich_with_search(client, text, result)
+                    filename = existing.get("filename") or docx_filename(mc_id, result)
+                    build_docx(result, OUTPUT_DIR / Path(filename).name)
+                    analyzed_at = datetime.now().isoformat()
+                    save_analysis(mc_id, existing.get("title") or item["title"], filename, analyzed_at, result)
+                    save_usage(mc_id, analyzed_at, usage)
+                    _add_run_cost(run_id, usage)
                     time.sleep(1)
                 else:
-                    text = fetch_item_text(item)
-                    result = analyze(client, text)
+                    text, meta = build_input_text(item)
+                    result = analyze(client, text)          # stap 1: zonder web search
                     usage = result.pop("_usage", None)
-                    # mc_id in de bestandsnaam: twee items met dezelfde Claude-titel
-                    # overschreven elkaar en /api/download gaf dan de verkeerde.
-                    safe_title = re.sub(r'[\\/*?:"<>|]', '', result.get("title") or mc_id).strip()[:100]
-                    filename = f"{mc_id} - {safe_title}.docx"
+                    result["mcId"] = mc_id
+                    result["originalTitle"] = item.get("title") or ""
+                    result["_sourceModified"] = meta["source_modified"]
+                    # Roadmap-ID's uit de brontekst zijn leidend (deterministisch); een door Claude
+                    # gevonden ID blijft alleen staan als er in de tekst niets stond.
+                    if meta["rm_ids"]:
+                        result["roadmapId"] = ", ".join(meta["rm_ids"])
+                        result["roadmapUrl"] = roadmap_url(meta["rm_ids"][0])
+                    elif not re.fullmatch(r"\d{5,7}", str(result.get("roadmapId") or "")):
+                        result["roadmapId"], result["roadmapUrl"] = None, ""
+                    filename = docx_filename(mc_id, result)
                     build_docx(result, OUTPUT_DIR / filename)
                     analyzed_at = datetime.now().isoformat()
+                    # Eerst opslaan: mislukt stap 2, dan is de (betaalde) analyse uit stap 1 niet weg.
                     save_analysis(mc_id, item["title"], filename, analyzed_at, result)
                     save_usage(mc_id, analyzed_at, usage)
-                    time.sleep(2)
+                    _add_run_cost(run_id, usage)
+                    if wants_web_search(result, item):       # stap 2: verdiepen met web search
+                        try:
+                            usage2 = enrich_with_search(client, text, result)
+                            build_docx(result, OUTPUT_DIR / filename)
+                            analyzed_at = datetime.now().isoformat()
+                            save_analysis(mc_id, item["title"], filename, analyzed_at, result)
+                            save_usage(mc_id, analyzed_at, usage2)
+                            _add_run_cost(run_id, usage2)
+                        except Exception as e2:
+                            log.warning(f"{mc_id}: verdiepen met web search mislukt: {e2}")
+                            failed2 = getattr(e2, "spent_usage", None)
+                            if failed2:
+                                save_usage(mc_id, datetime.now().isoformat(), failed2); _add_run_cost(run_id, failed2)
+                            with PROGRESS_LOCK:
+                                if _still_current(run_id):
+                                    progress["errors"].append(f"{mc_id}: web search mislukt, analyse zonder web search opgeslagen ({str(e2)[:160]})")
+                    time.sleep(1)
+                if enrich_only:
+                    with PROGRESS_LOCK:
+                        if _still_current(run_id): progress["done"] += 1
+                    continue
                 with PROGRESS_LOCK:
                     if _still_current(run_id):
                         progress["new_analyzed"].append({
@@ -930,6 +1465,11 @@ def run_analysis(api_key, items, force, webhook_url="", run_id=None):
                         })
             except Exception as e:
                 log.error(f"Fout bij {mc_id}: {e}")
+                # Ook een mislukt item heeft tokens gekost: loggen, anders klopt de schatting niet.
+                failed_usage = getattr(e, "spent_usage", None)
+                if failed_usage:
+                    save_usage(mc_id, datetime.now().isoformat(), failed_usage)
+                    _add_run_cost(run_id, failed_usage)
                 with PROGRESS_LOCK:
                     if _still_current(run_id):
                         progress["errors"].append(f"{mc_id}: {str(e)[:300]}")
@@ -953,49 +1493,9 @@ def run_analysis(api_key, items, force, webhook_url="", run_id=None):
                 progress["running"] = False
                 progress["current"] = ""
 
-# ─── GEPLANDE RUN (alleen di/wo/do ochtend) ───────────────────────────────────
-# Draait binnen dezelfde webservice (geen apart Railway cron-type nodig). Vereist
-# ANTHROPIC_API_KEY als env var, want er is niemand die 'm via de UI invult.
-# LET OP: draai met precies 1 gunicorn-worker (zie Procfile). progress en de scheduler
-# zijn proces-lokaal; met meerdere workers/replica's draait de geplande run dubbel.
-SCHEDULED_MC_COUNT = int(os.environ.get("SCHEDULED_MC_COUNT", "50"))
-SCHEDULED_INCLUDE_ROADMAP = os.environ.get("SCHEDULED_INCLUDE_ROADMAP", "false").lower() == "true"
-SCHEDULED_ROADMAP_COUNT = int(os.environ.get("SCHEDULED_ROADMAP_COUNT", "25"))
-
-def scheduled_run():
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        log.warning("Geplande analyse overgeslagen: ANTHROPIC_API_KEY ontbreekt")
-        return
-    try:
-        items = fetch_mc_list(SCHEDULED_MC_COUNT)
-        if SCHEDULED_INCLUDE_ROADMAP:
-            items += fetch_roadmap_list(SCHEDULED_ROADMAP_COUNT)
-    except Exception as e:
-        log.error(f"Geplande analyse: ophalen items mislukt: {e}")
-        return
-    webhook_url = os.environ.get("TEAMS_WEBHOOK_URL", "")
-    ok, err = try_start_run(api_key, items, False, webhook_url)
-    if ok:
-        log.info(f"Geplande analyse gestart: {len(items)} items")
-    else:
-        log.warning(f"Geplande analyse overgeslagen: {err}")
-
-# DISABLE_SCHEDULER=true: handig voor een lokale/test-instantie naast productie, zodat
-# die niet ook om 08:00 een betaalde run start.
-if os.environ.get("DISABLE_SCHEDULER", "").lower() != "true":
-    scheduler = BackgroundScheduler(timezone="Europe/Amsterdam")
-    scheduler.add_job(
-        scheduled_run,
-        CronTrigger(day_of_week="tue,wed,thu", hour=8, minute=0, timezone="Europe/Amsterdam"),
-        id="mc_scheduled_run",
-        replace_existing=True,
-        # Een deploy/herstart rond 08:00 liet de run eerder stil wegvallen. Nu wordt een
-        # gemiste run tot 1 uur later alsnog 1x uitgevoerd.
-        misfire_grace_time=3600,
-        coalesce=True,
-    )
-    scheduler.start()
+# Er is bewust GEEN geplande run meer: analyses kosten tokens en worden alleen handmatig
+# gestart vanuit de UI. Bijgewerkte berichten krijgen het label "Bron gewijzigd" en kun je
+# zelf opnieuw laten analyseren (per item of via het Analyseer-menu).
 
 # ─── ROUTES ───────────────────────────────────────────────────────────────────
 @app.route("/")
@@ -1034,6 +1534,7 @@ def get_items():
                 item["relevantieSCore"] = s["relevantieSCore"]
                 item["analyzedTitle"] = s["title"]
                 item["analyzedAt"] = s["analyzed_at"]
+                item["sourceChanged"] = source_changed(item.get("lastModifiedRaw"), s)
         save_seen(new_ids)
         return jsonify({"ok": True, "items": items, "newCount": len(new_ids)})
     except Exception as e:
@@ -1066,6 +1567,8 @@ def start_analyze():
             "isMajorChange": bool(it.get("isMajorChange", False)),
             "type": "roadmap" if it["id"].startswith("RM") else "messageCenter",
             "summary": str(it.get("summary") or "")[:20000],
+            "reanalyze": bool(it.get("reanalyze", False)),
+            "websearch": bool(it.get("websearch", False)),
         })
     if not items:
         return jsonify({"ok": False, "error": "Geen geldige items (verwacht MC123456 of RM123456)"}), 400

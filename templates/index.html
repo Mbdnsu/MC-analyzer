@@ -43,7 +43,7 @@ button,input,select{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 svg.i{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
-.app{height:100%;display:grid;grid-template-rows:auto auto auto 1fr}
+.app{height:100%;display:grid;grid-template-rows:auto auto auto 1fr;grid-template-columns:minmax(0,1fr)}
 
 /* Topbar met tabs */
 .top{background:var(--chrome);color:var(--chrome-fg);display:flex;align-items:center;gap:18px;padding:0 16px;height:50px;border-bottom:2px solid var(--accent)}
@@ -55,6 +55,11 @@ svg.i{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .tab[aria-selected="true"]{color:var(--chrome-fg);border-bottom-color:var(--accent)}
 .tab .n{font-variant-numeric:tabular-nums;font-size:11px;padding:1px 7px;border-radius:10px;background:color-mix(in srgb,var(--chrome-fg) 12%,transparent)}
 .top-r{margin-left:auto;display:flex;gap:4px;align-items:center}
+.cost-pill{background:color-mix(in srgb,var(--chrome-fg) 9%,transparent);border:1px solid color-mix(in srgb,var(--chrome-fg) 16%,transparent);color:var(--chrome-fg);border-radius:14px;height:28px;padding:0 11px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap;font-variant-numeric:tabular-nums;margin-right:4px}
+.cost-pill:hover{background:color-mix(in srgb,var(--chrome-fg) 15%,transparent)}
+.cost-pill .k{color:var(--chrome-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px}
+.cost-pill b{font-weight:700}
+.cost-pill .sep{width:1px;height:14px;background:color-mix(in srgb,var(--chrome-fg) 22%,transparent)}
 .ibtn{background:none;border:0;color:var(--chrome-muted);width:32px;height:32px;border-radius:var(--r);display:grid;place-items:center;cursor:pointer}
 .ibtn:hover{background:color-mix(in srgb,var(--chrome-fg) 10%,transparent);color:var(--chrome-fg)}
 
@@ -139,6 +144,7 @@ td.cbc input,th input{width:15px;height:15px;accent-color:var(--accent);margin:0
 .tag.inform{background:var(--info-soft);color:var(--info)}
 .tag.roadmap{background:var(--violet-soft);color:var(--violet)}
 .tag.major{border:1px solid color-mix(in srgb,var(--danger) 45%,transparent);color:var(--danger)}
+.tag.chg{background:var(--warn-soft);color:var(--warn)}
 .muted{color:var(--muted)}
 .svc,.date{color:var(--muted);font-size:12px}
 .date{white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -211,6 +217,24 @@ code.tk{font-family:var(--mono);font-size:.88em;background:var(--surface2);borde
 .admin .roles{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--muted)}
 .admin .note{margin-top:8px}
 .role{background:var(--info-soft);color:var(--info);font-weight:600;border-radius:9px;padding:1px 8px;font-size:11.5px}
+.lvl{font-weight:700}
+.chip.lvl-Hoog{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,transparent);background:var(--danger-soft)}
+.chip.lvl-Middel{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent);background:var(--warn-soft)}
+.chip.lvl-Laag{color:var(--info);border-color:color-mix(in srgb,var(--info) 35%,transparent);background:var(--info-soft)}
+.chip.lvl-Geen{color:var(--muted)}
+.chip.act{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
+.action{border-color:color-mix(in srgb,var(--warn) 45%,var(--border));background:var(--warn-soft)}
+.action h3{color:var(--warn)}
+.action .dl{margin-top:6px;font-weight:600}
+.rk{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.rk h4{margin:0 0 4px;font-size:12px}
+.rk ul{margin:0;padding-left:18px;line-height:1.6}
+.rk .none{color:var(--faint);font-size:12.5px}
+.stale{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--warn-soft);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-radius:8px;padding:9px 12px;font-weight:600;font-size:12.5px}
+.wsline{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);background:var(--surface);border:1px dashed var(--border);border-radius:8px;padding:8px 12px}
+.wsline.done{border-style:solid}
+.wsline .ok{color:var(--ok);font-weight:600}
+.copnote{margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
 .warnline{background:var(--warn-soft);color:var(--warn);border-radius:5px;padding:6px 9px;font-size:12px;margin-bottom:8px}
 .hidenote{font-size:11px;color:var(--faint);font-style:italic;text-transform:none;letter-spacing:0;font-weight:400}
 details.sec summary{cursor:pointer;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);font-weight:700;list-style:none;display:flex;justify-content:space-between}
@@ -228,7 +252,7 @@ a{color:var(--accent)}
 
 /* Modals */
 .overlay{position:fixed;inset:0;background:rgba(5,12,20,.5);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px}
-.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 24px;width:min(500px,100%);max-height:calc(100% - 32px);overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.25)}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 24px;width:min(560px,100%);max-height:calc(100% - 32px);overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.25)}
 .modal h2{margin:0 0 16px;font-size:16px}
 .frow{margin-bottom:14px}
 .frow label{display:block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:5px}
@@ -241,6 +265,15 @@ a{color:var(--accent)}
 .ucell .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:700}
 .ucell .v{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px}
 .ucell .s{font-size:11.5px;color:var(--muted)}
+.ucell.big .v{font-size:22px}
+.ugrid.four{grid-template-columns:repeat(4,1fr)}
+.uscroll{overflow-x:auto;margin-bottom:12px}
+.utable{width:100%;min-width:430px;border-collapse:collapse;font-size:12.5px}
+.utable th{white-space:nowrap}
+.utable th{position:static;text-align:right;padding:5px 8px;font-size:10.5px}
+.utable th:first-child,.utable td:first-child{text-align:left}
+.utable td{padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;border-top:1px solid var(--border)}
+.utable tr{cursor:default}
 
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--chrome);color:var(--chrome-fg);padding:9px 16px;border-radius:8px;font-size:12.5px;z-index:60;opacity:0;transition:opacity .2s;pointer-events:none;max-width:calc(100vw - 32px)}
 .toast.err{background:var(--danger);color:#fff}
@@ -278,7 +311,9 @@ a{color:var(--accent)}
   .detail{position:fixed;inset:0;z-index:25}
   .kv{grid-template-columns:1fr}
   .imp{grid-template-columns:1fr;gap:6px}
-  .ugrid{grid-template-columns:1fr}
+  .rk{grid-template-columns:1fr}
+  .ugrid,.ugrid.four{grid-template-columns:1fr 1fr}
+  .cost-pill .k,.cost-pill .sep,.cost-pill .m{display:none}
 }
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -309,7 +344,8 @@ a{color:var(--accent)}
       <button class="tab" role="tab" aria-selected="false" data-tab="roadmap">Roadmap <span class="n" id="n-roadmap">0</span></button>
     </nav>
     <div class="top-r">
-      <button class="ibtn" id="btn-usage" title="Claude-gebruik" aria-label="Claude-gebruik"><svg class="i"><use href="#i-chart"/></svg></button>
+      <button class="cost-pill" id="cost-pill" title="Geschatte Claude-kosten. Klik voor details." hidden><span class="k">Vandaag</span><b id="cp-day">$0,00</b><span class="sep"></span><span class="k m">Maand</span><b class="m" id="cp-month">$0,00</b></button>
+      <button class="ibtn" id="btn-usage" title="Claude-gebruik en kosten" aria-label="Claude-gebruik en kosten"><svg class="i"><use href="#i-chart"/></svg></button>
       <button class="ibtn" id="btn-theme" title="Thema wisselen" aria-label="Thema wisselen"><svg class="i"><use href="#i-moon"/></svg></button>
       <button class="ibtn" id="btn-settings" title="Instellingen" aria-label="Instellingen"><svg class="i"><use href="#i-gear"/></svg></button>
     </div>
@@ -324,6 +360,7 @@ a{color:var(--accent)}
         <button role="menuitem" data-run="new">Nieuwe items <span class="cnt" id="m-new">0</span></button>
         <button role="menuitem" data-run="open">Alle ongeanalyseerde <span class="cnt" id="m-open">0</span></button>
         <button role="menuitem" data-run="sel">Geselecteerde <span class="cnt" id="m-sel">0</span></button>
+        <button role="menuitem" data-run="changed" title="Microsoft heeft deze berichten bijgewerkt na de analyse">Bijgewerkte berichten opnieuw <span class="cnt" id="m-chg">0</span></button>
       </div>
     </div>
     <div class="search">
@@ -374,7 +411,7 @@ a{color:var(--accent)}
 
 <div class="overlay" id="usage" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="use-h">
-    <h2 id="use-h">Claude-gebruik</h2>
+    <h2 id="use-h">Claude-gebruik en geschatte kosten</h2>
     <div id="usage-body" class="muted">Laden...</div>
     <div class="mfoot"><button class="btn" id="u-close">Sluiten</button></div>
   </div>
@@ -389,7 +426,7 @@ a{color:var(--accent)}
 // Selectie leeft los van de DOM, zodat die de 2-seconden-poll overleeft.
 const S={tab:'mc', mc:[], roadmap:[], sel:new Set(), open:null, openSt:null, kb:-1,
   q:'', fst:'all', fsc:0, fsvc:'all', sort:'date', errIds:new Set(), errors:[],
-  prog:null, fetchedAt:null};
+  prog:null, fetchedAt:null, lastRunUsd:null};
 let pollTimer=null, pollBusy=false;
 
 const $=id=>document.getElementById(id);
@@ -463,6 +500,8 @@ function renderCounts(){
   document.querySelector('[data-run="new"]').disabled=nNew===0;
   document.querySelector('[data-run="open"]').disabled=nOpen===0;
   document.querySelector('[data-run="sel"]').disabled=nSel===0;
+  const nChg=L.filter(i=>i.sourceChanged&&i.status==='done').length;
+  $('m-chg').textContent=nChg; document.querySelector('[data-run="changed"]').disabled=nChg===0;
 }
 
 function renderBar(){
@@ -486,9 +525,11 @@ function renderBar(){
   let right='';
   if(running()){
     const p=S.prog; const pct=p.total>0?Math.round(p.done/p.total*100):0;
-    right='<div class="prog"><span>Analyseren '+p.done+'/'+p.total+(p.current?': '+escH(p.current):'')+'</span><div class="prog-track"><div class="prog-fill" style="width:'+pct+'%"></div></div><button class="btn sm ghost" id="btn-stop">Stop</button></div>';
+    right='<div class="prog"><span>Analyseren '+p.done+'/'+p.total+(p.current?': '+escH(p.current):'')+(p.usd?' · ~'+fmtUsd(p.usd):'')+'</span><div class="prog-track"><div class="prog-fill" style="width:'+pct+'%"></div></div><button class="btn sm ghost" id="btn-stop">Stop</button></div>';
   } else if(S.fetchedAt){
-    right='<span>Opgehaald om '+S.fetchedAt+'</span>';
+    right='<span>'+(S.lastRunUsd!=null?'Laatste run ~'+fmtUsd(S.lastRunUsd)+' · ':'')+'Opgehaald om '+S.fetchedAt+'</span>';
+  } else if(S.lastRunUsd!=null){
+    right='<span>Laatste run ~'+fmtUsd(S.lastRunUsd)+'</span>';
   }
   bar.innerHTML=st('all','Totaal')+st('new','Nieuw','new')+st('open','Openstaand','open')+st('done','Geanalyseerd','done')+'<div class="bar-r">'+right+'</div>';
   bar.querySelectorAll('.stat').forEach(b=>b.onclick=()=>{S.fst=b.dataset.f;$('f-status').value=S.fst;S.kb=-1;render();});
@@ -508,6 +549,7 @@ function renderRows(){
     if(cat==='inform') tags.push('<span class="tag inform">Stay Informed</span>');
     if(cat==='roadmap') tags.push('<span class="tag roadmap">Roadmap</span>');
     if(i.isMajorChange) tags.push('<span class="tag major">Major</span>');
+    if(i.sourceChanged&&i.status==='done') tags.push('<span class="tag chg" title="Microsoft heeft dit bericht bijgewerkt na de analyse">Bron gewijzigd</span>');
     // Overzicht toont altijd de originele Engelse titel van mc.merill.net.
     return '<tr data-id="'+escH(i.id)+'" class="'+(S.open===i.id?'cur ':'')+(S.kb===idx?'kb':'')+'">'+
       '<td class="cbc"><label><input type="checkbox" data-cb="'+escH(i.id)+'"'+(S.sel.has(i.id)?' checked':'')+' aria-label="Selecteer '+escH(i.id)+'"></label></td>'+
@@ -569,6 +611,7 @@ function impRow(cls,icon,label,text){
 function detailHead(it,a){
   const isRM=it.id.startsWith('RM'); const canRe=!!a&&!running();
   return '<div class="dhead"><span class="id">'+escH(it.id)+'</span><span class="dt">'+escH((a&&a.title)||it.title)+'</span><div class="acts">'+
+    (a?'<button class="btn sm" id="d-ws"'+(canRe?'':' disabled')+' title="'+(isRM?'Zoek op het web naar een gerelateerd MC-bericht':'Verifieer de admin-configuratie en zoek extra informatie op het web')+' (kost extra tokens)"><svg class="i"><use href="#i-search"/></svg>Web search</button>':'')+
     (a?'<button class="btn sm" id="d-re"'+(canRe?'':' disabled')+'><svg class="i"><use href="#i-refresh"/></svg>Heranalyseer</button>':'')+
     (!isRM&&a?'<button class="btn sm primary" id="d-dl"><svg class="i"><use href="#i-dl"/></svg>.docx</button>':'')+
     '</div><button class="x" id="d-x" aria-label="Sluiten"><svg class="i"><use href="#i-x"/></svg></button></div>';
@@ -580,45 +623,72 @@ function baseChips(it){
     (it.isMajorChange?'<span class="chip major"><b>Major change</b></span>':'');
 }
 
+function fmtWhen(iso){try{const d=new Date(iso);if(isNaN(d))return '';return d.toLocaleDateString('nl-NL',{day:'numeric',month:'short'})+' '+d.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'});}catch(e){return '';}}
+function wsLine(a,isRM){
+  const w=a._webSearch;
+  const btn='<button class="btn sm d-ws-inline"'+(running()?' disabled':'')+'><svg class="i"><use href="#i-search"/></svg>'+(w&&w.done?'Opnieuw zoeken':'Web search')+'</button>';
+  if(w&&w.done) return '<div class="wsline done"><span><span class="ok">Verdiept met web search</span>'+(w.at?' op '+escH(fmtWhen(w.at)):'')+(w.searches?' ('+w.searches+' zoekopdracht'+(w.searches===1?'':'en')+')':'')+'</span>'+btn+'</div>';
+  return '<div class="wsline"><span>'+(isRM?'Koppeling gezocht in het eigen archief, niet op het web.':'Geanalyseerd zonder web search. Admin-configuratie en links zijn niet op het web geverifieerd.')+'</span>'+btn+'</div>';
+}
+function docTitle(a){const t=(a.platformTag?'['+a.platformTag+'] ':'')+(a.title||'')+(a.mcId?' ['+a.mcId+']':'');return t.trim();}
+function listOrNone(arr,none){arr=asList(arr).filter(Boolean);return arr.length?'<ul>'+arr.map(x=>'<li>'+richText(x)+'</li>').join('')+'</ul>':'<div class="none">'+none+'</div>';}
+
 function mcDetail(it,a){
-  const sc=scoreOf(a); const ad=a.adminConfig;
-  const plan=asList(a.planning); const bullets=asList(a.omschrijvingBullets);
+  const sc=scoreOf(a); const ad=a.adminConfig; const ci=a.copilotImpact;
+  const legacyPlan=asList(a.planning); const bullets=asList(a.omschrijvingBullets);
+  const ga=a.algemeenBeschikbaar||legacyPlan[0]||'';
+  const hasNew=typeof a.actieVereist==='boolean';
   let adminBody='';
   if(ad){
     if(!ad.mogelijk){
       adminBody='<p class="muted">'+escH(ad.toelichting||'Geen admin-instelling gevonden om deze feature te configureren of uit te schakelen.')+'</p>';
     } else {
       const guess=ad.bron==='algemene kennis';
-      adminBody=(guess?'<div class="warnline">Geschat op basis van algemene kennis. Verifieer in het beheercentrum voordat je dit in een RFC opneemt.</div>':
+      adminBody=(guess?'<div class="warnline">Geschat op basis van algemene kennis. Verifieer in het beheercentrum voordat je dit doorvoert.</div>':
           '<div class="src">'+(ad.bron==='webzoekopdracht'?'Gevonden via websearch'+(safeUrl(ad.bronUrl)?' · '+linkHtml(ad.bronUrl,'bron'):''):'Vermeld in het bericht')+'</div>')+
         (ad.locatie?'<div class="where">'+escH(ad.locatie)+'</div>':'')+
-        (asList(ad.stappen).length?'<ol>'+asList(ad.stappen).map(s=>'<li>'+escH(s)+'</li>').join('')+'</ol>':'')+
-        (asList(ad.rollen).length?'<div class="roles">Benodigde rol '+asList(ad.rollen).map(r=>'<span class="role">'+escH(r)+'</span>').join('')+'</div>':'')+
+        (asList(ad.stappen).length?'<ol>'+asList(ad.stappen).map(s=>'<li>'+richText(s)+'</li>').join('')+'</ol>':'')+
+        (asList(ad.rollen).length?'<div class="roles">Minimaal benodigde rol '+asList(ad.rollen).map(r=>'<span class="role">'+escH(r)+'</span>').join('')+'</div>':'')+
         (ad.toelichting&&!guess?'<p class="note">'+escH(ad.toelichting)+'</p>':'');
     }
   }
   const links=asList(a.links);
+  const lvl=a.impactNiveau?String(a.impactNiveau).split(' ')[0]:'';
+  // Copilot: eigen blok als het bericht Copilot/AI noemt, anders één regel onder Impact.
+  const copilotSec=(ci&&ci.vanToepassing)?sec('Copilot <span class="hidenote">UWV: alleen Copilot Chat via het web</span>',
+      (ci.niveau?'<div class="chips" style="margin:0 0 8px"><span class="chip lvl-'+escH(String(ci.niveau).split(' ')[0])+'"><span class="k">Impact</span><b>'+escH(ci.niveau)+'</b></span>'+(ci.actieVereist?'<span class="chip act"><b>Actie vereist</b></span>':'')+'</div>':'')+
+      '<p>'+richText(ci.toelichting)+'</p>'):'';
+  const copilotNote=(ci&&!ci.vanToepassing)?'<div class="copnote">Copilot: niet van toepassing op dit bericht.</div>':'';
   return '<div class="dbody">'+
+    (it.sourceChanged?'<div class="stale"><span>Microsoft heeft dit bericht bijgewerkt na deze analyse. Datums of details kunnen verouderd zijn.</span><button class="btn sm" id="d-re2"'+(running()?' disabled':'')+'><svg class="i"><use href="#i-refresh"/></svg>Opnieuw analyseren</button></div>':'')+
     '<div><h2 class="h1">'+escH(a.title||it.title)+'</h2>'+(a.title&&a.title!==it.title?'<div class="orig">'+escH(it.title)+'</div>':'')+
     '<div class="chips">'+
       (sc?'<span class="chip"><span class="score s'+sc+'" style="width:20px;height:18px;font-size:11px">'+sc+'</span><b>'+scoreLbl[sc]+'</b></span>':'')+
+      (lvl?'<span class="chip lvl-'+escH(lvl)+'"><span class="k">Impact</span><b>'+escH(a.impactNiveau)+'</b></span>':'')+
+      (hasNew?(a.actieVereist?'<span class="chip act"><b>Actie vereist</b></span>':'<span class="chip"><b>Geen actie vereist</b></span>'):'')+
       (a.platform?'<span class="chip"><span class="k">Platform</span><b>'+escH(a.platform)+'</b></span>':'')+
-      (plan.length?'<span class="chip"><span class="k">Planning</span><b>'+escH(plan[0])+'</b></span>':'')+
+      (ga?'<span class="chip"><span class="k">Beschikbaar</span><b>'+escH(ga)+'</b></span>':'')+
       (it.isMajorChange?'<span class="chip major"><b>Major change</b></span>':'')+
     '</div></div>'+
+    wsLine(a,false)+
     (a.oneLiner?sec('Samenvatting voor Planner <button class="btn sm" id="d-copy"><svg class="i"><use href="#i-copy"/></svg>Kopieer</button>','<p id="d-brief">'+escH(a.oneLiner)+'</p>','brief'):'')+
+    (a.actieVereist?sec('Actie vereist','<p>'+richText(a.actieOmschrijving)+'</p>'+(a.actieDeadline?'<div class="dl">Deadline: '+escH(a.actieDeadline)+'</div>':''),'action'):'')+
     (sc?sec('Waarom deze score','<div class="relev"><span class="score s'+sc+'">'+sc+'</span><div><div class="lbl">'+scoreLbl[sc]+'</div><p class="muted">'+escH(a.relevantieUitleg||'')+'</p></div></div>'):'')+
     sec('Omschrijving wijziging','<p>'+richText(a.omschrijvingIntro)+'</p>'+(bullets.length?'<ul>'+bullets.map(b=>'<li>'+richText(b)+'</li>').join('')+'</ul>':'')+(a.omschrijvingSlot?'<p style="margin-top:8px">'+richText(a.omschrijvingSlot)+'</p>':''))+
-    sec('Impact','<div class="impact">'+impRow('org','org','Organisatie',a.impactOrganisaties)+impRow('tech','tech','Technisch',a.impactTechnisch)+impRow('func','func','Functioneel',a.impactFunctioneel)+'</div>')+
+    sec('Impact'+(a.impactNiveau?' <span class="hidenote">'+escH(a.impactNiveau)+'</span>':''),'<div class="impact">'+impRow('org','org','Organisatie',a.impactOrganisaties)+impRow('tech','tech','Technisch',a.impactTechnisch)+impRow('func','func','Functioneel',a.impactFunctioneel)+'</div>'+copilotNote)+
+    ((asList(a.risicos).length||asList(a.kansen).length)?sec("Risico's en kansen",'<div class="rk"><div><h4>Risico\'s en aandachtspunten</h4>'+listOrNone(a.risicos,'Geen specifieke risico\'s.')+'</div><div><h4>Kansen</h4>'+listOrNone(a.kansen,'Geen specifieke kansen.')+'</div></div>'):'')+
+    copilotSec+
+    (asList(a.extraInfo).length?sec('Aanvullende informatie <span class="hidenote">gevonden via web search, niet in de .docx</span>','<ul style="margin:0">'+asList(a.extraInfo).map(x=>'<li>'+richText(x)+'</li>').join('')+'</ul>'):'')+
     (ad?sec('Admin-configuratie / uitschakelen <span class="hidenote">niet in de .docx</span>',adminBody,'admin'):'')+
     '<div id="d-imgs"></div>'+
-    '<details class="sec"><summary>Documentgegevens (ook in de .docx)</summary><dl class="kv">'+
+    '<details class="sec"><summary>Documentgegevens (zoals in de .docx)</summary><dl class="kv">'+
+      '<dt>Documenttitel</dt><dd>'+escH(docTitle(a))+'</dd>'+
       '<dt>Roadmap ID</dt><dd>'+escH(a.roadmapId||'niet van toepassing')+'</dd>'+
       '<dt>Roadmap-link</dt><dd>'+linkHtml(a.roadmapUrl)+'</dd>'+
-      '<dt>Teams-taak</dt><dd>Planner - '+escH(a.title||it.title)+'</dd>'+
-      '<dt>Volledige planning</dt><dd>'+(plan.length?plan.map(escH).join('<br>'):'<span class="muted">onbekend</span>')+'</dd>'+
-      '<dt>Links</dt><dd>'+(a.geenSpecifiekeLearnPagina?'<span class="muted">Geen specifieke Microsoft Learn-pagina gevonden.</span>'+(links.length?'<br>':''):'')+
-        (links.length?links.map(l=>escH(l&&l.label)+': '+(safeUrl(l&&l.url)?linkHtml(l.url):'<span class="muted">Microsoft Message Center</span>')).join('<br>'):(a.geenSpecifiekeLearnPagina?'':'<span class="muted">geen</span>'))+'</dd>'+
+      '<dt>Teams-taak</dt><dd>Planner - '+escH(docTitle(a))+'</dd>'+
+      '<dt>Planning</dt><dd>'+((a.targetedRelease||a.algemeenBeschikbaar)?'Targeted Release: '+escH(a.targetedRelease||'Niet gespecificeerd')+'<br>Algemeen beschikbaar: '+escH(a.algemeenBeschikbaar||'Niet gespecificeerd'):(legacyPlan.length?legacyPlan.map(escH).join('<br>'):'<span class="muted">onbekend</span>'))+'</dd>'+
+      '<dt>Links</dt><dd>'+(links.length?links.map(l=>escH(l&&l.label)+': '+(safeUrl(l&&l.url)?linkHtml(l.url):'<span class="muted">geen URL</span>')).join('<br>'):'<span class="muted">Geen aanvullende Microsoft Learn-pagina gevonden.</span>')+'</dd>'+
+      '<dt>Message Center</dt><dd>'+linkHtml('https://admin.microsoft.com/Adminportal/Home#/MessageCenter/:/messages/'+encodeURIComponent(a.mcId||it.id),'Openen in het Microsoft 365-beheercentrum')+'</dd>'+
     '</dl></details>'+
   '</div>';
 }
@@ -631,6 +701,7 @@ function rmDetail(it,a){
     sec('Wat dit inhoudt','<p>'+escH(a.omschrijving||'')+'</p>')+
     sec('Waar op letten','<p>'+escH(a.waarOpLetten||'')+'</p>')+
     sec('Gerelateerd MC-bericht',a.gerelateerdMcId?'<p><span class="role" style="margin-right:6px">'+escH(a.gerelateerdMcId)+'</span>'+escH(a.mcRelatieUitleg||'')+'</p>':'<p class="muted">'+escH(a.mcRelatieUitleg||'Geen gerelateerd MC-bericht gevonden.')+'</p>')+
+    wsLine(a,true)+
     '<p class="note">Roadmap-items krijgen geen impactanalyse en geen document.</p>'+
   '</div>';
 }
@@ -677,6 +748,11 @@ function wireDetail(it,a){
   $('d-x').onclick=closeDetail;
   if($('d-dl')) $('d-dl').onclick=downloadSingle;
   if($('d-re')) $('d-re').onclick=()=>{if(confirm('Dit item opnieuw analyseren en de bestaande analyse overschrijven?'))startAnalysis([it],true);};
+  if($('d-re2')) $('d-re2').onclick=()=>startAnalysis([it],true);
+  // Web search per item: verdiept de bestaande analyse (stap 2), de analyse zelf blijft staan.
+  const ws=()=>startAnalysis([Object.assign(it,{_websearch:true})],false);
+  if($('d-ws')) $('d-ws').onclick=ws;
+  document.querySelectorAll('.d-ws-inline').forEach(b=>b.onclick=ws);
   if($('d-run')) $('d-run').onclick=()=>startAnalysis([it],false);
   if($('d-copy')&&a) $('d-copy').onclick=()=>copyText(a.oneLiner);
 }
@@ -732,7 +808,7 @@ async function startAnalysis(list,force){
   if(!list.length){toast('Geen items om te analyseren');return;}
   if(list.length>25&&!confirm(list.length+' items analyseren? Dit kan even duren en kost Claude-tokens.')) return;
   closeMenu();
-  const payload=list.map(i=>({id:i.id,title:i.title,service:i.service,category:i.category,isMajorChange:i.isMajorChange,summary:i.summary||''}));
+  const payload=list.map(i=>({id:i.id,title:i.title,service:i.service,category:i.category,isMajorChange:i.isMajorChange,summary:i.summary||'',reanalyze:!!i._reanalyze,websearch:!!i._websearch}));
   let resp;
   try{
     resp=await apiJson('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -743,7 +819,9 @@ async function startAnalysis(list,force){
     else toast('Starten mislukt: '+resp.error,true);
     return;
   }
-  S.errors=[]; list.forEach(i=>{S.errIds.delete(i.id);i._startAt=i.analyzedAt||null;i.status='processing';});
+  S.errors=[]; list.forEach(i=>{S.errIds.delete(i.id);i._startAt=i.analyzedAt||null;
+    i._wsOnly=!!i._websearch&&i.status==='done'&&!force&&!i._reanalyze; // alleen verdiepen: analyse zelf blijft
+    i._reanalyze=false;i._websearch=false;i.status='processing';});
   S.sel.clear();
   S.prog={running:true,done:0,total:resp.total||list.length,current:''};
   render(); refreshOpenIfChanged();
@@ -770,6 +848,7 @@ async function syncSummary(){
     // Een item in de lopende run telt pas als klaar als analyzed_at echt veranderd is
     // (bij heranalyse bestaat de oude analyse al).
     if(i.status==='processing'&&running()&&s.analyzed_at===i._startAt) continue;
+    if(i.analyzedAt&&s.analyzed_at!==i.analyzedAt&&!i._wsOnly) i.sourceChanged=false; // net opnieuw geanalyseerd
     i.status='done'; i.relevantieSCore=s.relevantieSCore; i.analyzedTitle=s.title; i.analyzedAt=s.analyzed_at;
   }
   return sum;
@@ -788,7 +867,11 @@ async function poll(){
       allItems().forEach(i=>{if(i.status==='processing') i.status=sum[i.id]?'done':'new';});
       S.errors=p.errors||[];
       const n=S.errors.length;
-      if(p.total) toast('Analyse klaar: '+p.done+' verwerkt'+(n?', '+n+' fout'+(n>1?'en':'')+' (zie melding)':''),n>0);
+      if(p.total){
+        S.lastRunUsd=p.usd||0;
+        toast('Analyse klaar: '+p.done+' verwerkt, geschat '+fmtUsd(p.usd||0)+(n?', '+n+' fout'+(n>1?'en':'')+' (zie melding)':''),n>0);
+        refreshCostPill();
+      }
       S.prog=null;
     }
     render(); refreshOpenIfChanged();
@@ -801,7 +884,7 @@ function refreshOpenIfChanged(){
   const it=allItems().find(i=>i.id===S.open); if(!it) return;
   const st=stOf(it);
   if(st!==S.openSt) openItem(S.open,true);
-  else { const re=$('d-re'); if(re) re.disabled=running(); const r=$('d-run'); if(r) r.disabled=running(); }
+  else { ['d-re','d-run','d-ws','d-re2'].forEach(id=>{const b=$(id); if(b) b.disabled=running();}); document.querySelectorAll('.d-ws-inline').forEach(b=>b.disabled=running()); }
 }
 
 // Downloads via fetch+blob zodat de app-token als header mee kan.
@@ -844,18 +927,38 @@ function saveSettings(){
   closeSettings(); toast('Instellingen opgeslagen');
 }
 const fmtNum=n=>(n||0).toLocaleString('nl-NL');
+const fmtUsd=n=>'$'+(Number(n)||0).toLocaleString('nl-NL',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+// Bedrag in de topbar: vandaag en deze maand. Wordt ververst bij laden en na elke run.
+async function refreshCostPill(){
+  try{
+    const data=await apiJson('/api/usage-summary'); const u=data.usage||{};
+    if(!u.vandaag) return;
+    $('cp-day').textContent=fmtUsd(u.vandaag.usd); $('cp-month').textContent=fmtUsd(u.deze_maand.usd);
+    $('cost-pill').hidden=false;
+  }catch(e){}
+}
+
 async function openUsage(){
   $('usage').hidden=false; $('usage-body').textContent='Laden...';
   try{
     const data=await apiJson('/api/usage-summary'); if(!data.ok) throw new Error('kon gebruik niet laden');
-    const t=data.usage.totaal||{}, w=data.usage.laatste_7_dagen||{};
-    const cell=(k,v,s)=>'<div class="ucell"><div class="k">'+k+'</div><div class="v">'+v+'</div>'+(s?'<div class="s">'+s+'</div>':'')+'</div>';
+    const u=data.usage||{}; if(!u.totaal) throw new Error('geen gegevens');
+    const d=u.vandaag, w=u.laatste_7_dagen, m=u.deze_maand, t=u.totaal, pr=u.prijzen||{};
+    const big=(k,p)=>'<div class="ucell big"><div class="k">'+k+'</div><div class="v">'+fmtUsd(p.usd)+'</div><div class="s">'+fmtNum(p.analyses)+' item'+(p.analyses===1?'':'s')+'</div></div>';
+    const avg=(p)=>p&&p.analyses?fmtUsd(p.usd/p.analyses):'-';
+    const base=w.analyses?w:t; const baseLbl=w.analyses?'laatste 7 dagen':'totaal';
+    const row=(k,p)=>'<tr><td>'+k+'</td><td>'+fmtNum(p.input_tokens)+'</td><td>'+fmtNum(p.cache_read_input_tokens)+'</td><td>'+fmtNum(p.output_tokens)+'</td><td>'+fmtNum(p.web_search_requests)+'</td><td><b>'+fmtUsd(p.usd)+'</b></td></tr>';
     $('usage-body').innerHTML=
-      '<div class="ucell" style="margin-bottom:10px;background:none;border:0;padding:0"><div class="k">Laatste 7 dagen</div></div>'+
-      '<div class="ugrid">'+cell('Analyses',fmtNum(w.analyses))+cell('Web searches',fmtNum(w.web_search_requests),'~$0,01 per search')+cell('Input tokens',fmtNum(w.input_tokens))+cell('Output tokens',fmtNum(w.output_tokens))+'</div>'+
-      '<div class="ucell" style="margin-bottom:10px;background:none;border:0;padding:0"><div class="k">Totaal sinds tracking</div></div>'+
-      '<div class="ugrid">'+cell('Analyses',fmtNum(t.analyses))+cell('Web searches',fmtNum(t.web_search_requests))+cell('Input tokens',fmtNum(t.input_tokens))+cell('Cache-read tokens',fmtNum(t.cache_read_input_tokens),'90% goedkoper door prompt caching')+'</div>'+
-      '<p class="note" style="margin:0">Exacte kosten staan in de Anthropic Console (Usage). Dit zijn ruwe tellingen.</p>';
+      '<div class="ugrid four">'+big('Vandaag',d)+big('7 dagen',w)+big('Deze maand',m)+big('Totaal',t)+'</div>'+
+      '<div class="ugrid"><div class="ucell"><div class="k">Gemiddeld per MC-item</div><div class="v">'+avg(base.mc)+'</div><div class="s">'+baseLbl+', inclusief web search en mislukte pogingen</div></div>'+
+      '<div class="ucell"><div class="k">Gemiddeld per roadmap-item</div><div class="v">'+avg(base.rm)+'</div><div class="s">'+baseLbl+'</div></div></div>'+
+      '<div class="uscroll"><table class="utable"><thead><tr><th>Periode</th><th>Input</th><th>Cache-read</th><th>Output</th><th>Searches</th><th>Geschat</th></tr></thead><tbody>'+
+        row('Vandaag',d)+row('7 dagen',w)+row('Deze maand',m)+row('Totaal',t)+'</tbody></table></div>'+
+      '<p class="note" style="margin:0 0 6px">Schatting op basis van de tarieven voor Claude Sonnet 5: input '+fmtUsd(pr.input)+', output '+fmtUsd(pr.output)+', cache-read '+fmtUsd(pr.cache_read)+' per miljoen tokens en '+fmtUsd(pr.web_search)+' per web search.</p>'+
+      '<p class="note" style="margin:0 0 6px">Web search draait '+(u.web_search_modus==='always'?'bij elk item':u.web_search_modus==='never'?'alleen via de knop per item':'automatisch bij score '+escH(u.web_search_min_score)+' of hoger of als er actie vereist is, en verder via de knop per item')+'. Roadmap-items en het herschrijven van samenvattingen lopen via het lichtere model.</p>'+
+      '<p class="note" style="margin:0">Het exacte bedrag staat in de Anthropic Console onder Cost. Verbruik van vóór 22 september is hier niet meegeteld.</p>';
+    $('cp-day').textContent=fmtUsd(d.usd); $('cp-month').textContent=fmtUsd(m.usd); $('cost-pill').hidden=false;
   }catch(e){ $('usage-body').innerHTML='<span style="color:var(--danger)">Laden mislukt: '+escH(e.message)+'</span>'; }
 }
 
@@ -888,6 +991,7 @@ $('btn-analyze-menu').onclick=e=>{e.stopPropagation();const m=$('analyze-menu');
 $('analyze-menu').onclick=e=>{
   const b=e.target.closest('[data-run]'); if(!b||b.disabled) return;
   const r=b.dataset.run, L=items();
+  if(r==='changed'){ startAnalysis(L.filter(i=>i.sourceChanged&&i.status==='done').map(i=>Object.assign(i,{_reanalyze:true})),false); return; }
   const list=r==='new'?L.filter(i=>stOf(i)==='new'):r==='open'?L.filter(i=>i.status!=='done'):L.filter(i=>S.sel.has(i.id));
   startAnalysis(list,false);
 };
@@ -899,7 +1003,7 @@ $('btn-theme').onclick=()=>{
 };
 $('btn-settings').onclick=openSettings; $('s-cancel').onclick=closeSettings; $('s-save').onclick=saveSettings;
 $('settings').onclick=e=>{if(e.target===$('settings'))closeSettings();};
-$('btn-usage').onclick=openUsage; $('u-close').onclick=()=>{$('usage').hidden=true;};
+$('btn-usage').onclick=openUsage; $('cost-pill').onclick=openUsage; $('u-close').onclick=()=>{$('usage').hidden=true;};
 $('usage').onclick=e=>{if(e.target===$('usage'))$('usage').hidden=true;};
 
 document.addEventListener('keydown',e=>{
@@ -929,8 +1033,8 @@ document.addEventListener('keydown',e=>{
 
 // ─── Start ──────────────────────────────────────────────────────────────────
 render();
-// Loopt er nog een run op de server (bv. de geplande run of vanaf een ander tabblad)? Voortgang oppakken.
-(async()=>{ try{ const p=await apiJson('/api/progress'); if(p.running){S.prog=p;render();startPolling();} }catch(e){} })();
+// Loopt er nog een run op de server (bv. gestart vanaf een ander tabblad)? Voortgang oppakken.
+(async()=>{ try{ const p=await apiJson('/api/progress'); if(p.running){S.prog=p;render();startPolling();} refreshCostPill(); }catch(e){} })();
 })();
 </script>
 </body>
