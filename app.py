@@ -925,6 +925,8 @@ ANALYSIS_TOOL = {
             "impactOrganisaties": _S("Wat dit voor UWV als organisatie betekent. Eerste zin is de kern. Maximaal 4 zinnen."),
             "impactTechnisch": _S("Wat er technisch verandert of vereist is (policies, Conditional Access, Intune, Defender, Purview, Entra), of expliciet 'Geen technische wijziging voor UWV.' Eerste zin is de kern. Maximaal 4 zinnen. Noem policy- en cmdlet-namen letterlijk."),
             "impactFunctioneel": _S("Wat eindgebruikers en beheerders in de praktijk merken, inclusief verwachte vragen bij de servicedesk. Eerste zin is de kern. Maximaal 4 zinnen."),
+            "relevantieSCore": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Relevantie voor UWV. 1: raakt UWV niet (bv. alleen voor licenties of features die UWV niet heeft). 2: zichtbaar maar zonder gevolgen. 3: merkbaar voor gebruikers of beheerders, geen actie nodig. 4: actie of communicatie aanbevolen. 5: verplichte actie met deadline, of gedrags-/securitywijziging met directe impact."},
+            "relevantieUitleg": _S("Eén of twee zinnen waarom deze score, specifiek voor UWV."),
             "actieVereist": {"type": "boolean", "description": "true als UWV iets moet doen (configureren, communiceren, voorbereiden) om ongewenste gevolgen te voorkomen of een deadline te halen."},
             "actieOmschrijving": _S("Bij actieVereist: de concrete actie in 1 tot 3 zinnen, met portaalpad of PowerShell-cmdlet. Anders lege string."),
             "actieDeadline": {"type": ["string", "null"], "description": "Datum waarop de actie uiterlijk gedaan moet zijn, alleen als het bericht die noemt. Anders null."},
@@ -941,8 +943,6 @@ ANALYSIS_TOOL = {
                 },
                 "required": ["vanToepassing", "toelichting"],
             },
-            "relevantieSCore": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Relevantie voor UWV. 1: raakt UWV niet (bv. alleen voor licenties of features die UWV niet heeft). 2: zichtbaar maar zonder gevolgen. 3: merkbaar voor gebruikers of beheerders, geen actie nodig. 4: actie of communicatie aanbevolen. 5: verplichte actie met deadline, of gedrags-/securitywijziging met directe impact."},
-            "relevantieUitleg": _S("Eén of twee zinnen waarom deze score, specifiek voor UWV."),
             "links": {
                 "type": "array",
                 "items": {"type": "object", "properties": {"label": {"type": "string"}, "url": {"type": ["string", "null"]}}, "required": ["label"]},
@@ -1096,7 +1096,31 @@ def _validate_analysis(a):
     if ac.get("mogelijk") is True and (not ac.get("locatie") or not ac.get("stappen")):
         raise ValueError("adminConfig.locatie/stappen leeg terwijl mogelijk:true")
 
+def _first_sentence(t):
+    t = (t or "").strip()
+    m = re.match(r"(.+?[.!?])(\s|$)", t)
+    return (m.group(1) if m else t)[:300]
+
+def _fill_soft_fields(a):
+    """Velden die alleen toelichting zijn, vullen we zelf aan als Claude ze leeg laat, in
+    plaats van de hele analyse (3x volledige tokens) af te keuren. Inhoudelijke velden
+    (impact, omschrijving, score) blijven gewoon verplicht via _validate_analysis."""
+    filled = []
+    if not (isinstance(a.get("relevantieUitleg"), str) and a["relevantieUitleg"].strip()):
+        basis = _first_sentence(a.get("impactOrganisaties")) or _first_sentence(a.get("impactFunctioneel"))
+        if basis:
+            a["relevantieUitleg"] = basis; filled.append("relevantieUitleg")
+    for k in ("targetedRelease", "algemeenBeschikbaar"):
+        if not (isinstance(a.get(k), str) and a[k].strip()):
+            a[k] = "Niet gespecificeerd"; filled.append(k)
+    if not (isinstance(a.get("platform"), str) and a["platform"].strip()) and a.get("platformTag"):
+        a["platform"] = a["platformTag"]; filled.append("platform")
+    if filled:
+        log.info(f"{a.get('mcId')}: lege velden zelf aangevuld: {', '.join(filled)}")
+    return filled
+
 ONELINER_MIN_WORDS, ONELINER_MAX_WORDS = 30, 95
+ANALYSIS_MAX_TOKENS = int(os.environ.get("ANALYSIS_MAX_TOKENS", "8000"))
 
 def analyze(client, text):
     """Stap 1: volledige analyse ZONDER web search. Maximaal 3 pogingen, alleen op
@@ -1104,18 +1128,27 @@ def analyze(client, text):
     het lichte model in plaats van de hele analyse te herhalen."""
     last_err = None
     spent = {}   # tokens van ALLE pogingen, ook mislukte: die zijn wel gefactureerd
+    max_tokens = ANALYSIS_MAX_TOKENS
+    feedback = ""
     for attempt in range(3):
         try:
             msg = client.messages.create(
                 model=ANALYSIS_MODEL,
-                max_tokens=5000,
+                max_tokens=max_tokens,
                 system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": text}],
+                messages=[{"role": "user", "content": text + feedback}],
                 tools=[ANALYSIS_TOOL],
                 tool_choice={"type": "tool", "name": "return_analysis"},
-                timeout=120.0,
+                timeout=180.0,
             )
             add_usage(spent, usage_of(msg, ANALYSIS_MODEL))
+            # Afgekapte output: de laatste velden van het schema ontbreken dan. Opnieuw met
+            # meer ruimte en de opdracht om compacter te schrijven, niet hetzelfde nog eens.
+            if getattr(msg, "stop_reason", None) == "max_tokens":
+                max_tokens = min(max_tokens * 2, 16000)
+                feedback = ("\n\nLET OP: je vorige antwoord werd afgekapt omdat het te lang was. "
+                            "Houd je strikt aan de maximale lengtes per veld en vul ALLE verplichte velden.")
+                raise ValueError(f"output afgekapt op max_tokens (verhoogd naar {max_tokens})")
             tool_calls = [b for b in msg.content if getattr(b, "type", None) == "tool_use" and b.name == "return_analysis"]
             if not tool_calls:
                 raise ValueError("Claude heeft geen return_analysis tool-call teruggegeven")
@@ -1123,7 +1156,14 @@ def analyze(client, text):
             # Zonder web search kan de bron geen zoekopdracht zijn.
             if isinstance(result.get("adminConfig"), dict) and result["adminConfig"].get("bron") == "webzoekopdracht":
                 result["adminConfig"]["bron"] = "algemene kennis"; result["adminConfig"]["bronUrl"] = None
-            _validate_analysis(result)
+            _fill_soft_fields(result)
+            try:
+                _validate_analysis(result)
+            except ValueError as ve:
+                # Vertel Claude bij de volgende poging wat er mis was, in plaats van exact
+                # dezelfde request te herhalen (die faalt dan meestal op dezelfde manier).
+                feedback = f"\n\nLET OP: je vorige antwoord was ongeldig ({ve}). Vul alle verplichte velden met inhoud."
+                raise
             words = len(result["oneLiner"].split())
             if not (ONELINER_MIN_WORDS <= words <= ONELINER_MAX_WORDS):
                 try:
