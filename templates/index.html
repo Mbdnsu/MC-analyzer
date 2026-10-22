@@ -687,7 +687,7 @@ function mcDetail(it,a){
       '<dt>Roadmap-link</dt><dd>'+linkHtml(a.roadmapUrl)+'</dd>'+
       '<dt>Teams-taak</dt><dd>Planner - '+escH(docTitle(a))+'</dd>'+
       '<dt>Planning</dt><dd>'+((a.targetedRelease||a.algemeenBeschikbaar)?'Targeted Release: '+escH(a.targetedRelease||'Niet gespecificeerd')+'<br>Algemeen beschikbaar: '+escH(a.algemeenBeschikbaar||'Niet gespecificeerd'):(legacyPlan.length?legacyPlan.map(escH).join('<br>'):'<span class="muted">onbekend</span>'))+'</dd>'+
-      '<dt>Links</dt><dd>'+(links.length?links.map(l=>escH(l&&l.label)+': '+(safeUrl(l&&l.url)?linkHtml(l.url):'<span class="muted">geen URL</span>')).join('<br>'):'<span class="muted">Geen aanvullende Microsoft Learn-pagina gevonden.</span>')+'</dd>'+
+      '<dt>Links</dt><dd>'+(links.length?links.map(l=>escH(l&&l.label)+': '+(safeUrl(l&&l.url)?linkHtml(l.url):'<span class="muted">geen URL</span>')).join('<br>'):'<span class="muted">Geen aanvullende Microsoft Learn-pagina gevonden.</span>'+(a.linkFallback&&safeUrl(a.linkFallback.url)?'<br>'+escH(a.linkFallback.label)+': '+linkHtml(a.linkFallback.url):''))+'</dd>'+
       '<dt>Message Center</dt><dd>'+linkHtml('https://admin.microsoft.com/Adminportal/Home#/MessageCenter/:/messages/'+encodeURIComponent(a.mcId||it.id),'Openen in het Microsoft 365-beheercentrum')+'</dd>'+
     '</dl></details>'+
   '</div>';
