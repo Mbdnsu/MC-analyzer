@@ -855,7 +855,7 @@ def build_input_text(item):
         lines.append(f"- Actie vereist voor: {_date_only(meta.get('ActionRequiredByDateTime'))}")
     lines.append(f"- Roadmap ID('s) gevonden in de tekst: {', '.join(rm_ids) if rm_ids else 'geen'}")
     lines += ["", "BERICHTTEKST:", body]
-    return "\n".join(lines), {"rm_ids": rm_ids,
+    return "\n".join(lines), {"rm_ids": rm_ids, "source_urls": sorted(urls_in_text(resp.text)),
                               "source_modified": meta.get("LastModifiedDateTime") or meta.get("StartDateTime") or ""}
 
 def fetch_item_images(url):
@@ -978,7 +978,7 @@ ENRICH_TOOL = {
     "cache_control": {"type": "ephemeral"},
 }
 
-def enrich_with_search(client, source_text, analysis):
+def enrich_with_search(client, source_text, analysis, source_urls=None):
     """Stap 2: verifieer en verrijk een bestaande analyse met web search. Past `analysis`
     ter plekke aan (adminConfig, links, extraInfo, eventueel planning) en geeft de usage terug.
     Wordt automatisch gebruikt bij relevante items en door de knop 'Web search' per item."""
@@ -1013,7 +1013,13 @@ def enrich_with_search(client, source_text, analysis):
                 if _safe_http(url) and url not in seen:
                     seen.add(url); merged.append({"label": l.get("label") or "Bron", "url": url})
             analysis["links"] = merged
-            analysis["geenSpecifiekeLearnPagina"] = not merged
+            # Alleen links uit het bericht, uit eerder gecontroleerde links of uit de echte
+            # zoekresultaten van deze call; daarna bereikbaarheid controleren.
+            trusted = set(source_urls or []) | search_result_urls(msg)
+            if analysis.get("_linksChecked"):
+                trusted |= {l.get("url") for l in (analysis.get("links") or []) if isinstance(l, dict) and l.get("url")}
+            sanitize_links(analysis, trusted)
+            analysis["_linksChecked"] = True
             analysis["extraInfo"] = [x for x in (e.get("extraInfo") or []) if isinstance(x, str) and x.strip()][:4]
             su = e.get("statusUpdate") or {}
             for k in ("targetedRelease", "algemeenBeschikbaar"):
@@ -1225,6 +1231,167 @@ def _add_hyperlink(paragraph, url, text, size=Pt(11)):
 def _safe_http(u):
     return u if isinstance(u, str) and re.match(r"^https?://", u.strip(), re.I) else None
 
+# ─── LINKCONTROLE ─────────────────────────────────────────────────────────────
+# Claude kan URL's "reconstrueren" die logisch klinken maar niet bestaan (bv. een Learn-pad
+# uit algemene kennis). Daarom twee harde poorten voordat een link in de analyse of het
+# document komt:
+#   1. Herkomst: de URL staat letterlijk in het MC-bericht, of kwam terug uit een echte
+#      web search-resultaat. Een URL die Claude zelf heeft opgeschreven telt niet.
+#   2. Bereikbaarheid: de pagina geeft na redirects een 2xx. 404/410 of een redirect naar een
+#      foutpagina/homepage = weg. Bij een twijfelgeval (timeout, 403, 429, 5xx) blijft een link
+#      alleen staan als de herkomst bevestigd is.
+# Resultaten worden in het geheugen gecachet, zodat document-downloads niet telkens opnieuw
+# alle links opvragen.
+LINK_CHECK = os.environ.get("LINK_CHECK", "on").lower() != "off"
+LINK_ALLOWED_HOSTS = ("microsoft.com", "aka.ms", "office.com", "cloud.microsoft", "microsoft365.com",
+                      "office365.com", "azure.com", "windows.com", "sharepoint.com", "live.com")
+_LINK_CACHE, _LINK_LOCK = {}, threading.Lock()
+_LINK_TTL_OK, _LINK_TTL_BAD = 24 * 3600, 6 * 3600
+_NOT_FOUND_RE = re.compile(r"(/404|notfound|not-found|pagenotfound|/errors?/)", re.I)
+_URL_IN_TEXT_RE = re.compile(r"https?://[^\s\"'<>()\[\]{}]+", re.I)
+
+def _host_allowed(url):
+    from urllib.parse import urlsplit
+    try:
+        u = urlsplit(url)
+    except ValueError:
+        return False
+    host = (u.hostname or "").lower()
+    return u.scheme == "https" and any(host == h or host.endswith("." + h) for h in LINK_ALLOWED_HOSTS)
+
+def _norm_url(url):
+    """Vergelijkbare vorm voor de herkomstcheck: zonder fragment, slash, querystring-tracking
+    en taalcode, zodat /en-us/ en /nl-nl/ van dezelfde pagina als gelijk tellen."""
+    from urllib.parse import urlsplit
+    if not isinstance(url, str): return ""
+    u = urlsplit(url.strip().replace("&amp;", "&"))
+    path = re.sub(r"^/[a-z]{2}-[a-z]{2}(?=/)", "", u.path.lower()).rstrip("/")
+    return f"{(u.hostname or '').lower()}{path}"
+
+def urls_in_text(text):
+    out = set()
+    for m in _URL_IN_TEXT_RE.findall(text or ""):
+        m = m.replace("&amp;", "&").rstrip(".,;:")
+        out.add(m)
+    return out
+
+def search_result_urls(msg):
+    """Alle URL's uit echte web search-resultaten en citaties in een Claude-response."""
+    out = set()
+    for b in getattr(msg, "content", None) or []:
+        t = getattr(b, "type", None)
+        if t == "web_search_tool_result":
+            content = getattr(b, "content", None)
+            for r in content if isinstance(content, list) else []:
+                u = getattr(r, "url", None) or (r.get("url") if isinstance(r, dict) else None)
+                if u: out.add(u)
+        for c in getattr(b, "citations", None) or []:
+            u = getattr(c, "url", None) or (c.get("url") if isinstance(c, dict) else None)
+            if u: out.add(u)
+    return out
+
+def check_link(url):
+    """True = bestaat, False = dood, None = niet vast te stellen. Geeft (status, eind-URL)."""
+    if not LINK_CHECK:
+        return None, url
+    now = time.time()
+    with _LINK_LOCK:
+        hit = _LINK_CACHE.get(url)
+        if hit and now - hit[2] < (_LINK_TTL_OK if hit[0] is not False else _LINK_TTL_BAD):
+            return hit[0], hit[1]
+    status, final = None, url
+    if _host_allowed(url):
+        try:
+            r = requests.get(url, timeout=8, allow_redirects=True, stream=True,
+                             headers={"User-Agent": "Mozilla/5.0 (MC-Analyzer linkcheck)", "Accept-Language": "en-US,en;q=0.8"})
+            final = r.url
+            r.close()
+            from urllib.parse import urlsplit
+            fpath = urlsplit(final).path
+            if r.status_code in (404, 410):
+                status = False
+            elif 200 <= r.status_code < 300:
+                if not _host_allowed(final):
+                    status = None
+                elif _NOT_FOUND_RE.search(final) and not _NOT_FOUND_RE.search(url):
+                    status = False                     # redirect naar een foutpagina
+                elif re.fullmatch(r"(/[a-z]{2}-[a-z]{2})?/?", fpath) and not re.fullmatch(r"(/[a-z]{2}-[a-z]{2})?/?", urlsplit(url).path):
+                    status = False                     # diepe link die op de homepage uitkomt
+                else:
+                    status = True
+        except requests.RequestException as e:
+            log.debug(f"linkcheck {url}: {e}")
+    with _LINK_LOCK:
+        _LINK_CACHE[url] = (status, final, now)
+        if len(_LINK_CACHE) > 5000:
+            for k in sorted(_LINK_CACHE, key=lambda k: _LINK_CACHE[k][2])[:1000]:
+                _LINK_CACHE.pop(k, None)
+    return status, final
+
+def _check_many(urls):
+    from concurrent.futures import ThreadPoolExecutor
+    urls = list(dict.fromkeys(urls))
+    if not urls: return {}
+    with ThreadPoolExecutor(max_workers=min(6, len(urls))) as ex:
+        return dict(zip(urls, ex.map(check_link, urls)))
+
+def learn_search_link(a):
+    from urllib.parse import quote_plus
+    q = a.get("originalTitle") or a.get("title") or a.get("mcId") or ""
+    return {"label": "Zoeken op Microsoft Learn", "url": "https://learn.microsoft.com/search/?terms=" + quote_plus(q)}
+
+def sanitize_links(a, trusted_urls=None):
+    """Houdt in a['links'] en a['adminConfig']['bronUrl'] alleen links over die de poorten
+    hierboven halen. trusted_urls=None (bv. oude analyses bij een download): herkomst onbekend,
+    dan moet de pagina aantoonbaar bestaan. Past `a` ter plekke aan, geeft de verwijderde
+    URL's terug (voor de log)."""
+    trusted = {_norm_url(u) for u in (trusted_urls or [])}
+    raw = [l for l in (a.get("links") or []) if isinstance(l, dict) and _safe_http(l.get("url"))]
+    raw = [l for l in raw if l.get("label") != "Zoeken op Microsoft Learn"]   # terugval niet dubbel
+    ac = a.get("adminConfig") if isinstance(a.get("adminConfig"), dict) else None
+    bron = _safe_http(ac.get("bronUrl")) if ac else None
+    checks = _check_many([l["url"].strip() for l in raw] + ([bron.strip()] if bron else []))
+
+    def keep(url):
+        url = url.strip()
+        known = _norm_url(url) in trusted
+        status, final = checks.get(url, (None, url))
+        if status is True:
+            return final if _host_allowed(final) else url
+        if status is None and known:
+            return url
+        if status is None and not LINK_CHECK and (known or trusted_urls is None):
+            return url
+        return None
+
+    kept, seen, dropped = [], set(), []
+    for l in raw:
+        url = keep(l["url"])
+        if not url:
+            dropped.append(l["url"]); continue
+        if _norm_url(url) in seen: continue
+        seen.add(_norm_url(url)); kept.append({"label": l.get("label") or "Bron", "url": url})
+    a["links"] = kept
+    a["geenSpecifiekeLearnPagina"] = not kept
+    if ac and bron:
+        nb = keep(bron)
+        if not nb:
+            dropped.append(bron); ac["bronUrl"] = None
+            if ac.get("bron") == "webzoekopdracht" and not kept:
+                ac["bron"] = "algemene kennis"
+        else:
+            ac["bronUrl"] = nb
+    if dropped:
+        log.info(f"{a.get('mcId')}: {len(dropped)} link(s) verwijderd (niet gevonden of niet herleidbaar): {', '.join(dropped)[:400]}")
+    return dropped
+
+def links_for_output(a):
+    """Links voor document en detailweergave: gecontroleerd, en altijd minstens één werkende
+    verwijzing (Learn-zoekpagina) als er geen specifieke pagina over blijft."""
+    b = {"mcId": a.get("mcId"), "links": list(a.get("links") or []), "adminConfig": dict(a.get("adminConfig") or {})}
+    sanitize_links(b, trusted_urls=None if not a.get("_linksChecked") else [l.get("url") for l in (a.get("links") or []) if isinstance(l, dict)])
+    return b["links"], b["adminConfig"].get("bronUrl")
+
 def build_docx(a, path):
     doc = Document()
     sec = doc.sections[0]
@@ -1292,13 +1459,14 @@ def build_docx(a, path):
     spacer()
     # 8. Links
     label("Links:")
-    links = [l for l in (a.get("links") or []) if isinstance(l, dict)]
-    good = [(l.get("label") or "Bron", _safe_http(l.get("url"))) for l in links if _safe_http(l.get("url"))]
+    good, _bron = links_for_output(a)
     if good:
-        for lbl, url in good:
-            p = para(); p.add_run(f"{lbl}: "); _add_hyperlink(p, url, url)
+        for l in good:
+            p = para(); p.add_run(f"{l['label']}: "); _add_hyperlink(p, l["url"], l["url"])
     else:
         text("Geen aanvullende Microsoft Learn-pagina gevonden voor deze specifieke update.")
+        fb = learn_search_link(a)
+        p = para(); p.add_run(f"{fb['label']}: "); _add_hyperlink(p, fb["url"], fb["url"])
     spacer()
     # 9. Message Center deeplink
     if mc_id:
@@ -1446,7 +1614,7 @@ def run_analysis(api_key, items, force, webhook_url="", run_id=None):
                     # Knop "Web search" op een bestaande analyse: alleen stap 2, de analyse zelf blijft staan.
                     text, _meta = build_input_text(item)
                     result = dict(existing["analysis"])
-                    usage = enrich_with_search(client, text, result)
+                    usage = enrich_with_search(client, text, result, _meta.get("source_urls"))
                     filename = existing.get("filename") or docx_filename(mc_id, result)
                     build_docx(result, OUTPUT_DIR / Path(filename).name)
                     analyzed_at = datetime.now().isoformat()
@@ -1468,6 +1636,8 @@ def run_analysis(api_key, items, force, webhook_url="", run_id=None):
                         result["roadmapUrl"] = roadmap_url(meta["rm_ids"][0])
                     elif not re.fullmatch(r"\d{5,7}", str(result.get("roadmapId") or "")):
                         result["roadmapId"], result["roadmapUrl"] = None, ""
+                    sanitize_links(result, meta.get("source_urls"))
+                    result["_linksChecked"] = True
                     filename = docx_filename(mc_id, result)
                     build_docx(result, OUTPUT_DIR / filename)
                     analyzed_at = datetime.now().isoformat()
@@ -1477,7 +1647,7 @@ def run_analysis(api_key, items, force, webhook_url="", run_id=None):
                     _add_run_cost(run_id, usage)
                     if wants_web_search(result, item):       # stap 2: verdiepen met web search
                         try:
-                            usage2 = enrich_with_search(client, text, result)
+                            usage2 = enrich_with_search(client, text, result, meta.get("source_urls"))
                             build_docx(result, OUTPUT_DIR / filename)
                             analyzed_at = datetime.now().isoformat()
                             save_analysis(mc_id, item["title"], filename, analyzed_at, result)
@@ -1655,7 +1825,15 @@ def get_analysis(mc_id):
         return jsonify({"ok": False, "error": str(e)}), 500
     if not entry:
         return jsonify({"ok": True, "analysis": None})
-    return jsonify({"ok": True, "analysis": entry["analysis"], "analyzed_at": entry["analyzed_at"]})
+    a = dict(entry["analysis"] or {})
+    if a.get("links") is not None or isinstance(a.get("adminConfig"), dict):
+        # Zelfde gecontroleerde links als in het document (oude analyses inbegrepen).
+        links, bron = links_for_output(a)
+        a["links"] = links
+        a["linkFallback"] = None if links else learn_search_link(a)
+        if isinstance(a.get("adminConfig"), dict):
+            a["adminConfig"] = dict(a["adminConfig"], bronUrl=bron)
+    return jsonify({"ok": True, "analysis": a, "analyzed_at": entry["analyzed_at"]})
 
 @app.route("/api/usage-summary")
 @require_token
