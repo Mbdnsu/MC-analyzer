@@ -73,27 +73,61 @@ def _get_pool():
             if _POOL is None:
                 _POOL = pgpool.ThreadedConnectionPool(
                     minconn=1, maxconn=int(os.environ.get("DB_POOL_MAX", "6")),
-                    dsn=os.environ.get("DATABASE_URL"), sslmode="require",
+                    dsn=os.environ.get("DATABASE_URL"),
+                    # "prefer": SSL waar de server het aanbiedt (publieke proxy), en het werkt ook
+                    # via het private netwerk van Railway. Zet PGSSLMODE=require om af te dwingen.
+                    sslmode=os.environ.get("PGSSLMODE", "prefer"),
+                    connect_timeout=10,
+                    # TCP-keepalives: een verbinding die de proxy of een DB-herstart stil heeft
+                    # verbroken, wordt binnen ~1 minuut als dood herkend in plaats van te blijven hangen.
+                    keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3,
                 )
     return _POOL
+
+def _conn_dead(conn):
+    return conn is None or conn.closed != 0
+
+def _healthy_conn(p):
+    """Haalt een verbinding uit de pool en test hem met SELECT 1. Na een herstart van Postgres
+    of een storing van de Railway-proxy zitten er dode verbindingen in de pool; die werden
+    voorheen eindeloos opnieuw uitgedeeld, zodat de app bleef falen tot een redeploy, ook als
+    de database allang weer draaide. Dode verbindingen worden nu weggegooid en vervangen."""
+    last = None
+    for _ in range(int(os.environ.get("DB_POOL_MAX", "6")) + 1):
+        conn = p.getconn()
+        try:
+            if not _conn_dead(conn):
+                with conn.cursor() as c:
+                    c.execute("SELECT 1")
+                conn.rollback()
+                return conn
+        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+            last = e
+        p.putconn(conn, close=True)
+    raise last or psycopg2.OperationalError("geen werkende databaseverbinding")
 
 @contextmanager
 def db(cursor_factory=None):
     p = _get_pool()
-    conn = p.getconn()
+    conn = _healthy_conn(p)
+    broken = False
     try:
         cur = conn.cursor(cursor_factory=cursor_factory) if cursor_factory else conn.cursor()
         try:
             yield cur
             conn.commit()
         finally:
-            cur.close()
+            try: cur.close()
+            except Exception: pass
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        broken = True
+        raise
     except Exception:
         try: conn.rollback()
-        except Exception: pass
+        except Exception: broken = True
         raise
     finally:
-        p.putconn(conn)
+        p.putconn(conn, close=broken or _conn_dead(conn))
 
 def init_db():
     try:
