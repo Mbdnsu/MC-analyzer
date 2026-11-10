@@ -173,10 +173,20 @@ def init_db():
             # Geschat bedrag per gelogde aanroep (per model berekend op het moment van loggen).
             cur.execute("ALTER TABLE usage_log ADD COLUMN IF NOT EXISTS usd DOUBLE PRECISION")
         log.info("Database klaar")
+        return True
     except Exception as e:
         log.error(f"DB init fout: {e}")
+        return False
 
-init_db()
+def _init_db_until_ok():
+    # Is de database bij het opstarten (even) onbereikbaar, dan blijft de app gewoon starten
+    # en proberen we het op de achtergrond opnieuw, in plaats van dat de deploy faalt.
+    delay = 5
+    while not init_db():
+        time.sleep(delay); delay = min(delay * 2, 60)
+
+if not init_db():
+    threading.Thread(target=_init_db_until_ok, daemon=True).start()
 
 def load_state():
     """Volledige analyses (incl. JSONB). Gooit door bij een DB-fout: een stille {} zou
@@ -1748,13 +1758,24 @@ def index():
 
 @app.route("/health")
 def health():
-    """Voor de Railway healthcheck: 200 als de app draait en de DB bereikbaar is."""
+    """Voor de Railway healthcheck: 200 zodra de app draait. De databasestatus staat erbij,
+    maar laat de healthcheck NIET falen: anders blokkeert een database- of proxystoring
+    elke deploy, ook de deploy die het probleem moet oplossen. Zie de foutmelding hier of
+    in de app zelf."""
     try:
         with db() as cur:
             cur.execute("SELECT 1")
-        return jsonify({"ok": True, "db": "ok", "running": bool(progress.get("running"))})
+        db_status = "ok"
     except Exception as e:
-        return jsonify({"ok": False, "db": str(e)[:200]}), 503
+        db_status = str(e).strip()[:300]
+        log.warning(f"health: database niet bereikbaar: {db_status}")
+    host = ""
+    try:
+        from urllib.parse import urlsplit
+        host = urlsplit(os.environ.get("DATABASE_URL") or "").hostname or ""
+    except Exception:
+        pass
+    return jsonify({"ok": True, "db": db_status, "db_host": host, "running": bool(progress.get("running"))})
 
 @app.route("/api/items")
 @require_token
